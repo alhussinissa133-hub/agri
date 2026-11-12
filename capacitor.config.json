@@ -1,0 +1,8 @@
+{
+  "appId": "sy.agri.pharmacy",
+  "appName": "الصيدلية الزراعية",
+  "webDir": "www",
+  "server": { "androidScheme": "http", "cleartext": true },
+  "android": { "allowMixedContent": true },
+  "plugins": { "CapacitorHttp": { "enabled": true } }
+}

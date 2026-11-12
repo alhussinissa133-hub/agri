@@ -1,0 +1,15 @@
+{
+  "name": "agri-pharmacy-android",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "www": "node scripts/prepare-www.js"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "6.2.0",
+    "@capacitor/android": "6.2.0",
+    "@capacitor/core": "6.2.0",
+    "jsqr": "1.4.0",
+    "qrcode-generator": "1.4.4"
+  }
+}
