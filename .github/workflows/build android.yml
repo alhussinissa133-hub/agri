@@ -1,0 +1,43 @@
+name: Android APK
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "رقم الإصدار مثل 1.0.0"
+        required: true
+        default: "1.0.0"
+permissions:
+  contents: write
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Version + fixed signing key
+        run: |
+          echo "{\"version\":\"${{ inputs.version }}\"}" > src/version.json
+          echo "{\"repo\":\"${{ github.repository }}\"}" > src/update-config.json
+          mkdir -p ~/.android && cp build/debug.keystore ~/.android/debug.keystore
+      - run: npm install
+      - run: node scripts/prepare-www.js
+      - run: npx cap add android
+      - run: node scripts/patch-android.js
+      - run: npx cap sync android
+      - run: chmod +x gradlew && ./gradlew assembleDebug
+        working-directory: android
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk AgriPharmacy.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AgriPharmacy-apk
+          path: AgriPharmacy.apk
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ inputs.version }}
+          files: AgriPharmacy.apk
