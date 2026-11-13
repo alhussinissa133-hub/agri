@@ -84,11 +84,11 @@
       settings: Object.assign({}, DEFAULTS), rates: [], users: new Map(), products: new Map(), customers: new Map(),
       suppliers: new Map(), batches: new Map(), batchesByProduct: new Map(), oversold: new Map(),
       sales: new Map(), salesOrder: [], purchases: new Map(), purchOrder: [], ledger: [], cash: [], expenses: [],
-      devCounts: {}
+      devCounts: {}, closes: [], periodStart: ""
     };
   }
   const PDEF = { unit: "قطعة", pack_factor: 1, price_mode: "USD", price_usd: 0, price_wholesale_usd: 0, price_syp: 0, price_wholesale_syp: 0, cost_usd: 0, min_stock: 0, active: 1 };
-  const PFIELDS = ["code", "barcode", "name", "category", "company", "active_ingredient", "unit", "pack_unit", "pack_factor", "price_mode", "price_usd", "price_wholesale_usd", "price_syp", "price_wholesale_syp", "min_stock", "notes", "active"];
+  const PFIELDS = ["code", "barcode", "name", "category", "company", "active_ingredient", "unit", "pack_unit", "pack_factor", "price_mode", "price_usd", "price_wholesale_usd", "price_syp", "price_wholesale_syp", "min_stock", "notes", "active", "packs"];
   const PNUM = new Set(["pack_factor", "price_usd", "price_wholesale_usd", "price_syp", "price_wholesale_syp", "min_stock", "active"]);
   const CFIELDS = ["name", "phone", "village", "type", "credit_limit_usd", "notes", "active"];
 
@@ -110,6 +110,85 @@
     const cur = map.get(d.id) || Object.assign({ id: d.id, createdT: t }, defaults);
     for (const k of fields) if (k in d) cur[k] = d[k];
     map.set(d.id, cur);
+  }
+
+  function saleCreate(S, e, counts) {
+    const d = e.d, rows = []; let cost = 0;
+    for (const it of d.items) {
+      const allocs = allocFefo(S, it.productId, it.base); let given = 0;
+      allocs.forEach(([bid, q, c], i) => {
+        const frac = q / it.base, lt = i === allocs.length - 1 ? r2(it.line - given) : r2(it.line * frac); given += lt;
+        rows.push({ productId: it.productId, batchId: bid, unit: it.unit, qtyUnit: r3(it.qty * frac), qtyBase: r3(q), price: it.price, lineTotal: lt, costUsd: r2(c * q) });
+        cost += c * q;
+        if (bid) { const b = S.batches.get(bid); b.qtyRemaining = r3(b.qtyRemaining - q); }
+        else S.oversold.set(it.productId, r3((S.oversold.get(it.productId) || 0) + q));
+      });
+    }
+    S.sales.set(d.id, { id: d.id, number: d.number, ts: d.ts, customerId: d.customerId, userId: e.by, currency: d.currency, rate: d.rate, subtotal: d.subtotal, discount: d.discount, total: d.total, paid: d.paid, totalUsd: d.totalUsd, costUsd: r2(cost), note: d.note, voided: 0, items: rows, t: e.t });
+    S.salesOrder.push(d.id);
+    if (counts) { const dc = S.devCounts[e.dev] || (S.devCounts[e.dev] = { sale: 0 }); dc.sale++; }
+    const rem = r2(d.total - d.paid);
+    if (rem > 0.005) S.ledger.push({ ts: d.ts, party_type: "customer", party_id: d.customerId, currency: d.currency, amount: rem, kind: "sale", ref_id: d.id, note: "فاتورة " + d.number, voided: 0 });
+    if (d.paid > 0.005) S.cash.push({ ts: d.ts, currency: d.currency, amount: r2(d.paid), kind: "sale", ref_id: d.id, note: "فاتورة " + d.number, voided: 0 });
+  }
+  function saleVoid(S, id) {
+    const s = S.sales.get(id); if (!s || s.voided || s.archived) return;
+    for (const it of s.items) {
+      if (it.batchId) { const b = S.batches.get(it.batchId); if (b) b.qtyRemaining = r3(b.qtyRemaining + it.qtyBase); }
+      else S.oversold.set(it.productId, Math.max(0, r3((S.oversold.get(it.productId) || 0) - it.qtyBase)));
+    }
+    s.voided = 1;
+    for (const x of S.ledger) if (x.ref_id === s.id && x.kind === "sale") x.voided = 1;
+    for (const x of S.cash) if (x.ref_id === s.id && x.kind === "sale") x.voided = 1;
+  }
+  const partyBal = (S, type, id) => { const b = { USD: 0, SYP: 0 }; for (const x of S.ledger) if (!x.voided && x.party_type === type && x.party_id === id) b[x.currency] += x.amount; return { USD: r2(b.USD), SYP: r2(b.SYP) }; };
+  const lastRate = S => { const r = S.rates[S.rates.length - 1]; return r ? (S.settings.rate_basis === "sell" ? r.sell : r.buy) : 0; };
+  /* تجميع شغل فترة (closeId = null -> السنة الحالية غير المقفلة) */
+  function periodData(S, closeId) {
+    const inP = x => !x.voided && (closeId ? x.closeId === closeId : !x.archived);
+    const sales = [...S.sales.values()].filter(inP), purchases = [...S.purchases.values()].filter(inP), expenses = S.expenses.filter(x => closeId ? x.closeId === closeId : !x.archived);
+    let rev = 0, cost = 0, purUsd = 0, expUsd = 0; const byCur = {}, months = new Map(), top = new Map();
+    for (const s of sales) {
+      rev += s.totalUsd; cost += s.costUsd; const c = byCur[s.currency] || (byCur[s.currency] = { total: 0, paid: 0 }); c.total = r2(c.total + s.total); c.paid = r2(c.paid + s.paid);
+      const mk = s.ts.slice(0, 7), m = months.get(mk) || { month: mk, n: 0, rev_usd: 0, profit_usd: 0 }; m.n++; m.rev_usd += s.totalUsd; m.profit_usd += s.totalUsd - s.costUsd; months.set(mk, m);
+      for (const it of s.items) { const pr = S.products.get(it.productId) || {}, g = top.get(it.productId) || { name: pr.name, unit: pr.unit, qty: 0, rev_usd: 0, cost_usd: 0 }; g.qty += it.qtyBase; g.rev_usd += toUsd(it.lineTotal, s.currency, s.rate); g.cost_usd += it.costUsd; top.set(it.productId, g); }
+    }
+    for (const p of purchases) purUsd += p.totalUsd; for (const e of expenses) expUsd += e.amount_usd;
+    return {
+      sales, purchases, expenses,
+      summary: { invoices: sales.length, revenue_usd: r2(rev), cost_usd: r2(cost), profit_usd: r2(rev - cost), expenses_usd: r2(expUsd), net_usd: r2(rev - cost - expUsd), purchases_usd: r2(purUsd), sales_by_currency: byCur },
+      months: [...months.values()].sort((a, b) => a.month.localeCompare(b.month)).map(m => ({ month: m.month, n: m.n, rev_usd: r2(m.rev_usd), profit_usd: r2(m.profit_usd) })),
+      top: [...top.values()].sort((a, b) => b.rev_usd - a.rev_usd).slice(0, 15).map(g => ({ name: g.name, unit: g.unit, qty: r3(g.qty), rev_usd: r2(g.rev_usd), profit_usd: r2(g.rev_usd - g.cost_usd) }))
+    };
+  }
+  function debtSnapshot(S) {
+    const rate = lastRate(S) || 1, out = { customers: [], suppliers: [] };
+    for (const [type, map, key] of [["customer", S.customers, "customers"], ["supplier", S.suppliers, "suppliers"]]) for (const p of map.values()) {
+      const b = partyBal(S, type, p.id); if (Math.abs(b.USD) > 0.004 || Math.abs(b.SYP) > 0.004) out[key].push({ id: p.id, name: p.name, phone: p.phone || null, USD: b.USD, SYP: b.SYP, total_usd: r2(b.USD + b.SYP / rate) });
+    }
+    for (const k of ["customers", "suppliers"]) out[k].sort((a, b) => b.total_usd - a.total_usd); return out;
+  }
+  function stockSnapshot(S) {
+    const rows = []; let value = 0;
+    for (const p of S.products.values()) {
+      if (!p.active) continue; const bs = (S.batchesByProduct.get(p.id) || []).filter(b => b.qtyRemaining > 0), st = stockOf(S, p.id), v = bs.reduce((a, b) => a + b.qtyRemaining * b.costUsd, 0); value += v;
+      if (st > 0) rows.push({ name: p.name, unit: p.unit, stock: st, value_usd: r2(v), batches: bs.map(b => ({ batch_no: b.batchNo, expiry: b.expiry, qty: b.qtyRemaining })) });
+    }
+    rows.sort((a, b) => a.name.localeCompare(b.name, "ar")); return { value_usd: r2(value), rows };
+  }
+  function cashSnapshot(S) { const b = {}; for (const c of S.cash) if (!c.voided) b[c.currency] = (b[c.currency] || 0) + c.amount; for (const k of Object.keys(b)) b[k] = r2(b[k]); return b; }
+  /* إقفال السنة: أرشفة الفواتير والمصاريف + ترحيل الأرصدة (ديون/مستحقات/صندوق) كرصيد افتتاحي. المخزون والأصناف والزبائن تبقى */
+  function yearClose(S, e) {
+    const d = e.d, pd = periodData(S, null);
+    const cl = { id: d.id, ts: d.ts, label: d.label, summary: pd.summary, months: pd.months, top: pd.top, debts: debtSnapshot(S), stock: stockSnapshot(S), cash: cashSnapshot(S), from: S.periodStart || null };
+    for (const x of S.sales.values()) if (!x.archived) { x.archived = 1; x.closeId = d.id; }
+    for (const x of S.purchases.values()) if (!x.archived) { x.archived = 1; x.closeId = d.id; }
+    for (const x of S.expenses) if (!x.archived) { x.archived = 1; x.closeId = d.id; }
+    const bal = new Map(); for (const x of S.ledger) if (!x.voided) { const k = x.party_type + "|" + x.party_id + "|" + x.currency; bal.set(k, (bal.get(k) || 0) + x.amount); }
+    S.ledger = []; for (const [k, v] of bal) { const [pt, pid, cur] = k.split("|"); if (Math.abs(v) > 0.004) S.ledger.push({ ts: d.ts, party_type: pt, party_id: pid, currency: cur, amount: r2(v), kind: "carry", ref_id: d.id, note: "رصيد مرحّل من " + d.label, voided: 0 }); }
+    const cb = {}; for (const c of S.cash) if (!c.voided) cb[c.currency] = (cb[c.currency] || 0) + c.amount;
+    S.cash = []; for (const k of Object.keys(cb)) if (Math.abs(cb[k]) > 0.004) S.cash.push({ ts: d.ts, currency: k, amount: r2(cb[k]), kind: "carry", ref_id: d.id, note: "رصيد مرحّل من " + d.label, voided: 0 });
+    S.closes.push(cl); S.periodStart = d.ts;
   }
 
   const APPLY = {
@@ -146,35 +225,15 @@
       if (rem > 0.005) S.ledger.push({ ts: d.ts, party_type: "supplier", party_id: d.supplierId, currency: d.currency, amount: rem, kind: "purchase", ref_id: d.id, note: "شراء " + (d.invoiceNo || ""), voided: 0 });
       if (d.paid > 0.005) S.cash.push({ ts: d.ts, currency: d.currency, amount: -r2(d.paid), kind: "purchase", ref_id: d.id, note: "شراء", voided: 0 });
     },
-    "sale.create"(S, e) {
-      const d = e.d, rows = []; let cost = 0;
-      for (const it of d.items) {
-        const allocs = allocFefo(S, it.productId, it.base); let given = 0;
-        allocs.forEach(([bid, q, c], i) => {
-          const frac = q / it.base, lt = i === allocs.length - 1 ? r2(it.line - given) : r2(it.line * frac); given += lt;
-          rows.push({ productId: it.productId, batchId: bid, unit: it.unit, qtyUnit: r3(it.qty * frac), qtyBase: r3(q), price: it.price, lineTotal: lt, costUsd: r2(c * q) });
-          cost += c * q;
-          if (bid) { const b = S.batches.get(bid); b.qtyRemaining = r3(b.qtyRemaining - q); }
-          else S.oversold.set(it.productId, r3((S.oversold.get(it.productId) || 0) + q));
-        });
-      }
-      S.sales.set(d.id, { id: d.id, number: d.number, ts: d.ts, customerId: d.customerId, userId: e.by, currency: d.currency, rate: d.rate, subtotal: d.subtotal, discount: d.discount, total: d.total, paid: d.paid, totalUsd: d.totalUsd, costUsd: r2(cost), note: d.note, voided: 0, items: rows, t: e.t });
-      S.salesOrder.push(d.id);
-      const dc = S.devCounts[e.dev] || (S.devCounts[e.dev] = { sale: 0 }); dc.sale++;
-      const rem = r2(d.total - d.paid);
-      if (rem > 0.005) S.ledger.push({ ts: d.ts, party_type: "customer", party_id: d.customerId, currency: d.currency, amount: rem, kind: "sale", ref_id: d.id, note: "فاتورة " + d.number, voided: 0 });
-      if (d.paid > 0.005) S.cash.push({ ts: d.ts, currency: d.currency, amount: r2(d.paid), kind: "sale", ref_id: d.id, note: "فاتورة " + d.number, voided: 0 });
+    "sale.create"(S, e) { saleCreate(S, e, true); },
+    "sale.edit"(S, e) { saleVoid(S, e.d.replaces); saleCreate(S, e, false); const ns = S.sales.get(e.d.id); if (ns) ns.editedFrom = e.d.replaces; },
+    "sale.void"(S, e) { saleVoid(S, e.d.id); },
+    "stock.addbatch"(S, e) {
+      const d = e.d, b = { id: d.batchId, productId: d.productId, batchNo: d.batchNo || null, expiry: d.expiry || null, qtyIn: d.qty, qtyRemaining: d.qty, costUsd: d.cost || 0, purchaseId: null, created: d.ts, order: S.batches.size };
+      const ov = S.oversold.get(d.productId) || 0; if (ov > 0) { const ab = Math.min(ov, b.qtyRemaining); b.qtyRemaining = r3(b.qtyRemaining - ab); S.oversold.set(d.productId, r3(ov - ab)); }
+      S.batches.set(b.id, b); if (!S.batchesByProduct.has(d.productId)) S.batchesByProduct.set(d.productId, []); S.batchesByProduct.get(d.productId).push(b);
     },
-    "sale.void"(S, e) {
-      const s = S.sales.get(e.d.id); if (!s || s.voided) return;
-      for (const it of s.items) {
-        if (it.batchId) { const b = S.batches.get(it.batchId); if (b) b.qtyRemaining = r3(b.qtyRemaining + it.qtyBase); }
-        else S.oversold.set(it.productId, Math.max(0, r3((S.oversold.get(it.productId) || 0) - it.qtyBase)));
-      }
-      s.voided = 1;
-      for (const x of S.ledger) if (x.ref_id === s.id && x.kind === "sale") x.voided = 1;
-      for (const x of S.cash) if (x.ref_id === s.id && x.kind === "sale") x.voided = 1;
-    },
+    "year.close"(S, e) { yearClose(S, e); },
     "payment.create"(S, e) {
       const d = e.d;
       S.ledger.push({ ts: d.ts, party_type: d.partyType, party_id: d.partyId, currency: d.applyCur, amount: -d.applied, kind: "payment", ref_id: d.id, note: d.note, orig_currency: d.payCur, orig_amount: d.amount, rate: d.rate, voided: 0 });
@@ -191,7 +250,7 @@
       S.oversold.set(pid, 0);
       const cur = (S.batchesByProduct.get(pid) || []).reduce((a, b) => a + b.qtyRemaining, 0), delta = d.newQty - cur;
       if (delta > 1e-9) {
-        const b = { id: d.newBatchId, productId: pid, batchNo: "جرد", expiry: null, qtyIn: r3(delta), qtyRemaining: r3(delta), costUsd: d.cost || 0, purchaseId: null, created: d.ts, order: S.batches.size };
+        const b = { id: d.newBatchId, productId: pid, batchNo: "جرد", expiry: d.expiry || null, qtyIn: r3(delta), qtyRemaining: r3(delta), costUsd: d.cost || 0, purchaseId: null, created: d.ts, order: S.batches.size };
         S.batches.set(b.id, b); if (!S.batchesByProduct.has(pid)) S.batchesByProduct.set(pid, []); S.batchesByProduct.get(pid).push(b);
       } else if (delta < -1e-9) {
         let left = -delta;
@@ -377,15 +436,21 @@
         if (parts.length === 1 && method === "GET") return this._salesList(query);
         if (parts.length === 2 && method === "GET") return this._saleDetail(parts[1]);
         if (parts.length === 3 && parts[2] === "void" && method === "POST") {
-          this._owner(); const s = S.sales.get(parts[1]); if (!s) throw new ApiError(404, "الفاتورة غير موجودة"); if (s.voided) throw bad("الفاتورة ملغاة مسبقاً");
-          await this._commit("sale.void", { id: s.id }); return this._saleDetail(s.id);
+          this._owner(); const s = S.sales.get(parts[1]); if (!s) throw new ApiError(404, "الفاتورة غير موجودة"); if (s.voided) throw bad("الفاتورة محذوفة مسبقاً");
+          if (s.archived) throw bad("هذه الفاتورة من سنة مقفلة ولا يمكن حذفها");
+          await this._commit("sale.void", { id: s.id }); return { ok: true };
+        }
+        if (parts.length === 3 && parts[2] === "edit" && method === "POST") {
+          this._owner(); const s = S.sales.get(parts[1]); if (!s || s.voided) throw new ApiError(404, "الفاتورة غير موجودة");
+          if (s.archived) throw bad("هذه الفاتورة من سنة مقفلة ولا يمكن تعديلها");
+          return this._createSale(body, s);
         }
       }
       /* --- المشتريات والمصاريف --- */
       if (head === "purchases") {
         this._owner();
         if (parts.length === 1 && method === "POST") return this._createPurchase(body);
-        if (parts.length === 1 && method === "GET") return S.purchOrder.slice().reverse().slice(0, 200).map(id => this._purchView(S.purchases.get(id)));
+        if (parts.length === 1 && method === "GET") return S.purchOrder.slice().reverse().filter(id => !S.purchases.get(id).archived).slice(0, 200).map(id => this._purchView(S.purchases.get(id)));
         if (parts.length === 2 && method === "GET") { const p = S.purchases.get(parts[1]); if (!p) throw new ApiError(404, "غير موجود"); return Object.assign(this._purchView(p), { items: p.items.map(i => ({ name: (S.products.get(i.productId) || {}).name, unit: i.unit, qty_unit: i.qty, cost: i.cost, batch_no: i.batchNo, expiry: i.expiry })) }); }
       }
       if (head === "expenses") {
@@ -396,10 +461,30 @@
         }
         if (parts.length === 1 && method === "GET") {
           this._owner(); const [f, t] = this._range(query, true);
-          return S.expenses.filter(e => e.ts >= f && e.ts <= t).slice().reverse().slice(0, 500);
+          return S.expenses.filter(e => !e.archived && e.ts >= f && e.ts <= t).slice().reverse().slice(0, 500);
         }
       }
 
+      /* --- المخزون والجرد --- */
+      if (path === "inventory" && method === "GET") { this._owner(); return this._inventory(); }
+      if (path === "stock/count" && method === "POST") { this._owner(); return this._stockCount(body); }
+      if (path === "stock/add_batch" && method === "POST") {
+        this._owner(); const p = S.products.get(body.product_id); if (!p) throw bad("الصنف غير موجود");
+        const qty = +body.qty || 0; if (qty <= 0) throw bad("الكمية غير صحيحة");
+        let ex = (body.expiry || "").trim() || null; if (ex && !/^\d{4}-\d{2}(-\d{2})?$/.test(ex)) throw bad("صيغة التاريخ: YYYY-MM-DD"); if (ex && ex.length === 7) ex += "-28";
+        await this._commit("stock.addbatch", { batchId: uuid(), productId: p.id, qty: r3(qty), expiry: ex, batchNo: (body.batch_no || "").trim() || "جرد", cost: p.cost_usd || 0, ts: this.ts() }); return { ok: true };
+      }
+      /* --- إقفال السنة --- */
+      if (head === "year") {
+        this._owner();
+        if (path === "year/closes") return S.closes.slice().reverse().map(c => ({ id: c.id, label: c.label, ts: c.ts, summary: c.summary }));
+        if (path === "year/report") return this._yearReport(query.close || null);
+        if (path === "year/close" && method === "POST") {
+          const label = String(body.label || "").trim(); if (!label) throw bad("اكتب اسم السنة (مثال 2026)");
+          if (!(await checkSecret(normPin(body.pin), user.pin))) throw new ApiError(403, "الرمز غير صحيح");
+          const id = uuid(); await this._commit("year.close", { id, ts: this.ts(), label }); return { ok: true, id };
+        }
+      }
       /* --- التقارير --- */
       if (path === "dashboard") return this._dashboard(user);
       if (head === "reports") {
@@ -421,6 +506,38 @@
       throw new ApiError(404, "مسار غير معروف");
     }
 
+    _inventory() {
+      const S = this.S, todayMs = new Date(this.today() + "T00:00:00").getTime(), rows = [];
+      for (const p of [...S.products.values()].filter(p => p.active).sort((a, b) => a.name.localeCompare(b.name, "ar"))) {
+        const bs = (S.batchesByProduct.get(p.id) || []).filter(b => b.qtyRemaining > 0).sort((a, b) => (a.expiry ? 0 : 1) - (b.expiry ? 0 : 1) || (a.expiry || "").localeCompare(b.expiry || "") || a.order - b.order);
+        rows.push({ id: p.id, name: p.name, category: p.category, unit: p.unit, pack_unit: p.pack_unit, pack_factor: p.pack_factor, min_stock: p.min_stock, stock: stockOf(S, p.id), oversold: S.oversold.get(p.id) || 0,
+          batches: bs.map(b => ({ id: b.id, batch_no: b.batchNo, expiry: b.expiry, qty: b.qtyRemaining, cost_usd: b.costUsd, days_left: b.expiry ? Math.floor((new Date(b.expiry + "T00:00:00").getTime() - todayMs) / 86400000) : null })) });
+      }
+      return { warn_days: +S.settings.expiry_warn_days || 90, rows };
+    }
+    async _stockCount(body) {
+      const S = this.S, rows = Array.isArray(body.rows) ? body.rows : [], diffs = [];
+      for (const r of rows) {
+        const p = S.products.get(r.product_id); if (!p) continue; const nq = +r.new_qty; if (!(nq >= 0)) throw bad("كمية غير صحيحة للصنف «" + p.name + "»");
+        if (r.batch_id) { const b = S.batches.get(r.batch_id); if (!b || Math.abs(b.qtyRemaining - nq) < 1e-9) continue; diffs.push({ name: p.name, unit: p.unit, batch_no: b.batchNo, expiry: b.expiry, before: b.qtyRemaining, after: nq }); await this._commit("stock.adjust", { id: uuid(), productId: p.id, newQty: nq, batchId: b.id, newBatchId: uuid(), reason: "جرد", ts: this.ts(), cost: p.cost_usd }); }
+        else { const cur = stockOf(S, p.id); if (Math.abs(cur - nq) < 1e-9) continue; diffs.push({ name: p.name, unit: p.unit, batch_no: null, expiry: null, before: cur, after: nq }); await this._commit("stock.adjust", { id: uuid(), productId: p.id, newQty: nq, batchId: null, newBatchId: uuid(), reason: "جرد", ts: this.ts(), cost: p.cost_usd }); }
+      }
+      return { ok: true, changed: diffs.length, diffs };
+    }
+    _yearReport(closeId) {
+      const S = this.S, cl = closeId ? S.closes.find(c => c.id === closeId) : null; if (closeId && !cl) throw new ApiError(404, "السنة غير موجودة");
+      const pd = periodData(S, closeId || null), tsOf = x => x.ts, all = pd.sales.map(tsOf).concat(pd.purchases.map(tsOf), pd.expenses.map(tsOf)).sort();
+      const cname = id => (S.customers.get(id) || {}).name || null, sname = id => (S.suppliers.get(id) || {}).name || null;
+      return {
+        label: cl ? cl.label : "السنة الحالية (غير مقفلة)", closed: !!cl, shop: S.settings.shop_name, printed_at: this.ts(), closed_at: cl ? cl.ts : null,
+        from: (all[0] || "").slice(0, 10), to: cl ? cl.ts.slice(0, 10) : this.today(),
+        summary: pd.summary, months: pd.months, top_products: pd.top,
+        sales: pd.sales.map(x => ({ number: x.number, ts: x.ts, customer: x.customerId ? cname(x.customerId) : null, currency: x.currency, total: x.total, paid: x.paid, remaining: r2(x.total - x.paid) })),
+        purchases: pd.purchases.map(x => ({ ts: x.ts, supplier: x.supplierId ? sname(x.supplierId) : null, invoice_no: x.invoiceNo, currency: x.currency, total: x.total, paid: x.paid })),
+        expenses: pd.expenses.map(x => ({ ts: x.ts, category: x.category, amount: x.amount, currency: x.currency, note: x.note })),
+        debts: cl ? cl.debts : debtSnapshot(S), stock: cl ? cl.stock : stockSnapshot(S), cash: cl ? cl.cash : cashSnapshot(S)
+      };
+    }
     _hash(secret) { return hashSecret(secret); }
 
     /* ============================== المزامنة ============================== */
@@ -664,8 +781,8 @@
     }
 
     /* ---- المبيعات ---- */
-    async _createSale(d) {
-      const S = this.S, id0 = d.uuid ? String(d.uuid) : null;
+    async _createSale(d, edit) {
+      const S = this.S, id0 = !edit && d.uuid ? String(d.uuid) : null;
       if (id0 && S.sales.has(id0)) { const r = this._saleDetail(id0); r.duplicate = true; return r; }
       const cur = d.currency || "USD"; if (!CUR.includes(cur)) throw bad("العملة غير صحيحة");
       const items = d.items || []; if (!items.length) throw bad("الفاتورة فارغة");
@@ -675,32 +792,32 @@
       let subtotal = 0; const lines = [], need = new Map();
       for (const it of items) {
         const p = S.products.get(it.product_id); if (!p) throw bad("صنف غير موجود في الفاتورة");
-        const qty = +it.qty || 0, price = +it.price || 0; let unit = it.unit === "pack" ? "pack" : "base"; if (unit === "pack" && !p.pack_unit) unit = "base";
+        const qty = +it.qty || 0, price = +it.price || 0; const uo = unitOf(p, it.unit || "base"), unit = uo.key;
         if (qty <= 0 || price < 0) throw bad(`كمية/سعر غير صحيح للصنف «${p.name}»`);
-        const base = unit === "pack" ? qty * (p.pack_factor || 1) : qty, line = r2(price * qty);
+        const base = qty * uo.f, line = r2(price * qty);
         need.set(p.id, (need.get(p.id) || 0) + base);
-        if (!allowNeg && stockOf(S, p.id) < need.get(p.id) - 1e-9) throw bad(`الكمية غير كافية للصنف «${p.name}»`);
-        lines.push({ productId: p.id, qty, unit, price, base: r3(base), line }); subtotal += line;
+        if (!allowNeg && stockOf(S, p.id) + (edit ? edit.items.filter(x => x.productId === p.id).reduce((a, x) => a + x.qtyBase, 0) : 0) < need.get(p.id) - 1e-9) throw bad(`الكمية غير كافية للصنف «${p.name}»`);
+        lines.push({ productId: p.id, qty, unit, price, base: Math.round(base * 1e6) / 1e6, line }); subtotal += line;
       }
       const discount = Math.max(0, +d.discount || 0), total = r2(Math.max(0, subtotal - discount));
       let paid = d.paid == null ? total : Math.max(0, Math.min(+d.paid, total)); const remaining = r2(total - paid);
       if (remaining > 0.005 && !cust) throw bad("البيع بالدين يحتاج اختيار زبون");
-      let over = false; if (cust && remaining > 0.005 && (cust.credit_limit_usd || 0) > 0) over = this._debtUsd(cust.id, rate) + toUsd(remaining, cur, rate) > cust.credit_limit_usd + 1e-6;
+      let over = false; if (cust && remaining > 0.005 && (cust.credit_limit_usd || 0) > 0) over = this._debtUsd(cust.id, rate) - (edit && edit.customerId === cust.id ? toUsd(edit.total - edit.paid, edit.currency, rate) : 0) + toUsd(remaining, cur, rate) > cust.credit_limit_usd + 1e-6;
       const id = id0 || uuid(), n = ((S.devCounts[this.meta.deviceId] || { sale: 0 }).sale) + 1;
-      await this._commit("sale.create", { id, number: this.devCode + "-" + String(n).padStart(4, "0"), ts: d.ts || this.ts(), customerId: cust ? cust.id : null, currency: cur, rate, items: lines, subtotal: r2(subtotal), discount: r2(discount), total, paid: r2(paid), totalUsd: r2(toUsd(total, cur, rate)), note: d.note || "" });
+      await this._commit(edit ? "sale.edit" : "sale.create", { id, replaces: edit ? edit.id : undefined, number: edit ? edit.number : this.devCode + "-" + String(n).padStart(4, "0"), ts: edit ? edit.ts : (d.ts || this.ts()), customerId: cust ? cust.id : null, currency: cur, rate, items: lines, subtotal: r2(subtotal), discount: r2(discount), total, paid: r2(paid), totalUsd: r2(toUsd(total, cur, rate)), note: d.note || "" });
       const r = this._saleDetail(id); r.over_credit_limit = over; return r;
     }
     _saleDetail(id) {
       const S = this.S, s = S.sales.get(id); if (!s) throw new ApiError(404, "الفاتورة غير موجودة");
       const c = s.customerId ? S.customers.get(s.customerId) : null, u = S.users.get(s.userId), groups = new Map();
       for (const it of s.items) { const k = it.productId + "|" + it.unit + "|" + it.price; const g = groups.get(k) || { product_id: it.productId, sold_unit: it.unit, price: it.price, qty_unit: 0, line_total: 0 }; g.qty_unit = r3(g.qty_unit + it.qtyUnit); g.line_total = r2(g.line_total + it.lineTotal); groups.set(k, g); }
-      const items = [...groups.values()].map(g => { const p = S.products.get(g.product_id) || {}; return Object.assign(g, { name: p.name, unit: p.unit, pack_unit: p.pack_unit }); });
-      return { id: s.id, number: s.number, ts: s.ts, customer_id: s.customerId, customer_name: c ? c.name : null, user_name: u ? u.name : null, currency: s.currency, rate: s.rate, subtotal: s.subtotal, discount: s.discount, total: s.total, paid: s.paid, total_usd: s.totalUsd, cost_usd: s.costUsd, note: s.note, voided: s.voided, items, remaining: r2(s.total - s.paid) };
+      const items = [...groups.values()].map(g => { const p = S.products.get(g.product_id) || {}; return Object.assign(g, { name: p.name, unit: p.unit, pack_unit: p.pack_unit, unit_label: p.unit ? unitOf(p, g.sold_unit).label : "" }); });
+      return { id: s.id, number: s.number, ts: s.ts, customer_id: s.customerId, customer_name: c ? c.name : null, user_name: u ? u.name : null, currency: s.currency, rate: s.rate, subtotal: s.subtotal, discount: s.discount, total: s.total, paid: s.paid, total_usd: s.totalUsd, cost_usd: s.costUsd, note: s.note, voided: s.voided, archived: s.archived ? 1 : 0, edited: s.editedFrom ? 1 : 0, items, remaining: r2(s.total - s.paid) };
     }
     _range(q, full) { const f = (q.from || (full ? "0000-01-01" : this.today())), t = (q.to || (full ? "9999-12-31" : this.today())); return [f + " 00:00:00", t + " 23:59:59"]; }
     _salesList(q) {
       const S = this.S, [f, t] = q.from ? this._range(q) : ["0000", "9999"], lim = Math.min(+q.limit || 200, 1000);
-      return S.salesOrder.slice().reverse().map(id => S.sales.get(id)).filter(s => s.ts >= f && s.ts <= t && (!q.customer_id || s.customerId === q.customer_id)).slice(0, lim)
+      return S.salesOrder.slice().reverse().map(id => S.sales.get(id)).filter(s => !s.voided && !s.archived && s.ts >= f && s.ts <= t && (!q.customer_id || s.customerId === q.customer_id)).slice(0, lim)
         .map(s => ({ id: s.id, number: s.number, ts: s.ts, currency: s.currency, total: s.total, paid: s.paid, total_usd: s.totalUsd, voided: s.voided, customer_id: s.customerId, customer_name: s.customerId ? (S.customers.get(s.customerId) || {}).name : null }));
     }
 
@@ -712,9 +829,9 @@
       let total = 0; const lines = [];
       for (const it of items) {
         const p = S.products.get(it.product_id); if (!p) throw bad("صنف غير موجود");
-        const qty = +it.qty || 0, cost = +it.cost || 0, unit = it.unit === "pack" && p.pack_unit ? "pack" : "base";
+        const qty = +it.qty || 0, cost = +it.cost || 0, uo = unitOf(p, it.unit || "base"), unit = uo.key;
         if (qty <= 0 || cost < 0) throw bad(`كمية/تكلفة غير صحيحة للصنف «${p.name}»`);
-        const base = unit === "pack" ? qty * (p.pack_factor || 1) : qty, line = r2(cost * qty); total += line;
+        const base = qty * uo.f, line = r2(cost * qty); total += line;
         let expiry = (it.expiry || "").trim() || null;
         if (expiry && !/^\d{4}-\d{2}(-\d{2})?$/.test(expiry)) throw bad("صيغة تاريخ الصلاحية: YYYY-MM-DD");
         if (expiry && expiry.length === 7) expiry += "-28";
@@ -751,7 +868,7 @@
     /* ---- التقارير ---- */
     _dashboard(user) {
       const S = this.S, rinfo = this._rate(), td = this.today(), month = td.slice(0, 8) + "01";
-      const agg = from => { let n = 0, rev = 0, pr = 0; for (const s of S.sales.values()) if (!s.voided && s.ts >= from + " 00:00:00") { n++; rev += s.totalUsd; pr += s.totalUsd - s.costUsd; } return { n, rev, pr }; };
+      const agg = from => { let n = 0, rev = 0, pr = 0; for (const s of S.sales.values()) if (!s.voided && !s.archived && s.ts >= from + " 00:00:00") { n++; rev += s.totalUsd; pr += s.totalUsd - s.costUsd; } return { n, rev, pr }; };
       const a = agg(td), m = agg(month), out = { rate: rinfo, today: { invoices: a.n, revenue_usd: r2(a.rev) }, month: { invoices: m.n, revenue_usd: r2(m.rev) } };
       if (user.role === "owner") {
         out.today.profit_usd = r2(a.pr); out.month.profit_usd = r2(m.pr);
@@ -763,14 +880,14 @@
     }
     _cashBalance(f, t) { const b = {}; for (const c of this.S.cash) if (!c.voided && (!f || (c.ts >= f && c.ts <= t))) b[c.currency] = (b[c.currency] || 0) + c.amount; for (const k of Object.keys(b)) b[k] = r2(b[k]); return b; }
     _reportSummary(q) {
-      const S = this.S, [f, t] = this._range(q), rate = this._needRate().use, sales = [...S.sales.values()].filter(s => !s.voided && s.ts >= f && s.ts <= t);
+      const S = this.S, [f, t] = this._range(q), rate = this._needRate().use, sales = [...S.sales.values()].filter(s => !s.voided && !s.archived && s.ts >= f && s.ts <= t);
       let rev = 0, cost = 0; const byCur = {}, days = new Map(), top = new Map();
       for (const s of sales) {
         rev += s.totalUsd; cost += s.costUsd; const c = byCur[s.currency] || (byCur[s.currency] = { total: 0, paid: 0 }); c.total = r2(c.total + s.total); c.paid = r2(c.paid + s.paid);
         const dk = s.ts.slice(0, 10), dd = days.get(dk) || { day: dk, n: 0, rev_usd: 0, profit_usd: 0 }; dd.n++; dd.rev_usd += s.totalUsd; dd.profit_usd += s.totalUsd - s.costUsd; days.set(dk, dd);
         for (const it of s.items) { const g = top.get(it.productId) || { name: (S.products.get(it.productId) || {}).name, qty: 0, rev_usd: 0, cost_usd: 0 }; g.qty += it.qtyUnit; g.rev_usd += toUsd(it.lineTotal, s.currency, s.rate); g.cost_usd += it.costUsd; top.set(it.productId, g); }
       }
-      const exp = S.expenses.filter(e => e.ts >= f && e.ts <= t).reduce((a, e) => a + e.amount_usd, 0);
+      const exp = S.expenses.filter(e => !e.archived && e.ts >= f && e.ts <= t).reduce((a, e) => a + e.amount_usd, 0);
       return {
         from: f.slice(0, 10), to: t.slice(0, 10), rate, invoices: sales.length, revenue_usd: r2(rev), cost_usd: r2(cost), profit_usd: r2(rev - cost), expenses_usd: r2(exp), net_usd: r2(rev - cost - exp),
         sales_by_currency: byCur, cash_movement: this._cashBalance(f, t), cash_balance: this._cashBalance(),
@@ -802,6 +919,21 @@
     }
   }
 
-  const exported = { create: async opts => { const e = new Engine(opts); await e.init(); return e; }, Engine, MemoryStore, ApiError, parseRateHtml, normDigits, normPin, normCode, b64uEnc, b64uDec, toHex, fromHex, randId, uuid, pbkdf2Hex, cmpEv, fmtTs, DEFAULTS, _internals: { APPLY, newState } };
+  /* ---------- وحدات البيع (لتر/نص لتر/مل، كغ/غ، متر/سم) ---------- */
+  const UNAME = { "لتر": ["vol", 1000], "ليتر": ["vol", 1000], "مل": ["vol", 1], "كغ": ["mass", 1000], "كغم": ["mass", 1000], "كلغ": ["mass", 1000], "كيلو": ["mass", 1000], "غ": ["mass", 1], "غرام": ["mass", 1], "غم": ["mass", 1], "متر": ["len", 100], "م": ["len", 100], "سم": ["len", 1] };
+  const UPRE = { vol: [["لتر", 1000], ["نص لتر", 500], ["ربع لتر", 250], ["100 مل", 100], ["مل", 1]], mass: [["كغ", 1000], ["نص كغ", 500], ["ربع كغ", 250], ["100 غ", 100], ["غ", 1]], len: [["متر", 100], ["نص متر", 50], ["سم", 1]] };
+  function unitsFor(p) {
+    const out = [{ key: "base", label: p.unit || "قطعة", f: 1 }], b = UNAME[String(p.unit || "").trim()];
+    if (b) for (const [label, amt] of UPRE[b[0]]) if (amt !== b[1]) out.push({ key: "u" + amt, label, f: amt / b[1] });
+    if (p.pack_unit) {
+      out.push({ key: "pack", label: p.pack_unit, f: p.pack_factor || 1 });
+      const word = String(p.pack_unit).split(" ")[0], seen = new Set([p.pack_factor || 1]);
+      for (const t of String(p.packs || "").split(/[,،\s]+/)) { const n = parseFloat(normDigits(t)); if (n > 0 && !seen.has(n)) { seen.add(n); out.push({ key: "pk" + n, label: word + " " + n + " " + (p.unit || ""), f: n }); } }
+    }
+    return out;
+  }
+  const unitOf = (p, key) => unitsFor(p).find(u => u.key === key) || unitsFor(p)[0];
+
+  const exported = { unitsFor, UNIT_NAMES: Object.keys(UNAME), create: async opts => { const e = new Engine(opts); await e.init(); return e; }, Engine, MemoryStore, ApiError, parseRateHtml, normDigits, normPin, normCode, b64uEnc, b64uDec, toHex, fromHex, randId, uuid, pbkdf2Hex, cmpEv, fmtTs, DEFAULTS, _internals: { APPLY, newState } };
   return exported;
 });
