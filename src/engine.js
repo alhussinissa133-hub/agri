@@ -51,8 +51,8 @@
     const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: fromHex(saltHex), iterations: iter }, key, 256);
     return toHex(bits);
   }
-  async function hashSecret(secret) { const salt = toHex(randBytes(16)); return { salt, hash: await pbkdf2Hex(secret, salt) }; }
-  async function checkSecret(secret, rec) { return !!(rec && rec.hash && (await pbkdf2Hex(secret, rec.salt)) === rec.hash); }
+  async function hashSecret(secret) { const salt = toHex(randBytes(16)), iter = 30000; return { salt, iter, hash: await pbkdf2Hex(secret, salt, iter) }; }
+  async function checkSecret(secret, rec) { return !!(rec && rec.hash && (await pbkdf2Hex(secret, rec.salt, rec.iter || 100000)) === rec.hash); }
   function genRecoveryCode() { const a = randBytes(16); let raw = ""; for (let i = 0; i < 16; i++) raw += RC_ALPHA[a[i] % RC_ALPHA.length]; return raw.match(/.{4}/g).join("-"); }
 
   /* ------------------------------ سعر الصرف من الليرة اليوم ------------------------------ */
@@ -84,7 +84,7 @@
       settings: Object.assign({}, DEFAULTS), rates: [], users: new Map(), products: new Map(), customers: new Map(),
       suppliers: new Map(), batches: new Map(), batchesByProduct: new Map(), oversold: new Map(),
       sales: new Map(), salesOrder: [], purchases: new Map(), purchOrder: [], ledger: [], cash: [], expenses: [],
-      devCounts: {}, closes: [], periodStart: ""
+      devCounts: {}, closes: [], stocktakes: [], periodStart: ""
     };
   }
   const PDEF = { unit: "قطعة", pack_factor: 1, price_mode: "USD", price_usd: 0, price_wholesale_usd: 0, price_syp: 0, price_wholesale_syp: 0, cost_usd: 0, min_stock: 0, active: 1 };
@@ -118,7 +118,7 @@
       const allocs = allocFefo(S, it.productId, it.base); let given = 0;
       allocs.forEach(([bid, q, c], i) => {
         const frac = q / it.base, lt = i === allocs.length - 1 ? r2(it.line - given) : r2(it.line * frac); given += lt;
-        rows.push({ productId: it.productId, batchId: bid, unit: it.unit, qtyUnit: r3(it.qty * frac), qtyBase: r3(q), price: it.price, lineTotal: lt, costUsd: r2(c * q) });
+        rows.push({ productId: it.productId, batchId: bid, unit: it.unit, size: it.size, qtyUnit: r3(it.qty * frac), qtyBase: r3(q), price: it.price, lineTotal: lt, costUsd: r2(c * q) });
         cost += c * q;
         if (bid) { const b = S.batches.get(bid); b.qtyRemaining = r3(b.qtyRemaining - q); }
         else S.oversold.set(it.productId, r3((S.oversold.get(it.productId) || 0) + q));
@@ -234,6 +234,7 @@
       S.batches.set(b.id, b); if (!S.batchesByProduct.has(d.productId)) S.batchesByProduct.set(d.productId, []); S.batchesByProduct.get(d.productId).push(b);
     },
     "year.close"(S, e) { yearClose(S, e); },
+    "stocktake.log"(S, e) { S.stocktakes.push({ id: e.d.id, ts: e.d.ts, by: e.by, diffs: e.d.diffs, uncounted: e.d.uncounted || 0, matched: e.d.matched || 0 }); },
     "payment.create"(S, e) {
       const d = e.d;
       S.ledger.push({ ts: d.ts, party_type: d.partyType, party_id: d.partyId, currency: d.applyCur, amount: -d.applied, kind: "payment", ref_id: d.id, note: d.note, orig_currency: d.payCur, orig_amount: d.amount, rate: d.rate, voided: 0 });
@@ -279,7 +280,7 @@
       this.fetchText = opts.fetchText || (async u => (await fetch(u)).text());
       this.getHosts = opts.getHosts || (async () => []);
       this.seed = opts.seed || (typeof PHARMA_SEED !== "undefined" ? PHARMA_SEED : []);
-      this.pbkdfIter = opts.pbkdfIter || 100000;
+      this.defaultRelay = (opts.defaultRelay || '').replace(/\/+$/, '');
       this.listeners = {}; this.cur = null; this.q = Promise.resolve(); this.fails = { n: 0, until: 0 }; this.autoTimer = null;
       this.syncing = false; this.syncState = {};
     }
@@ -296,6 +297,7 @@
         meta = { deviceId: uuid(), group: { gid: randId(16), secret: randId(32), name: "" }, remotes: [], relayUrl: "", lastSyncAt: null, created: this.now() };
         await this.store.setMeta("meta", meta);
       }
+      if (!meta.relayUrl && !meta.relayOff && this.defaultRelay) { meta.relayUrl = this.defaultRelay; await this.store.setMeta("meta", meta); }
       this.meta = meta; this.devCode = meta.deviceId.replace(/[^a-z0-9]/gi, "").slice(0, 4).toUpperCase();
       this.byDev = {}; this.vec = {}; this.sorted = []; this.maxT = 0;
       const evs = await this.store.loadEvents();
@@ -468,6 +470,7 @@
       /* --- المخزون والجرد --- */
       if (path === "inventory" && method === "GET") { this._owner(); return this._inventory(); }
       if (path === "stock/count" && method === "POST") { this._owner(); return this._stockCount(body); }
+      if (path === "stocktakes") { this._owner(); return this._stocktakes(); }
       if (path === "stock/add_batch" && method === "POST") {
         this._owner(); const p = S.products.get(body.product_id); if (!p) throw bad("الصنف غير موجود");
         const qty = +body.qty || 0; if (qty <= 0) throw bad("الكمية غير صحيحة");
@@ -516,14 +519,21 @@
       return { warn_days: +S.settings.expiry_warn_days || 90, rows };
     }
     async _stockCount(body) {
-      const S = this.S, rows = Array.isArray(body.rows) ? body.rows : [], diffs = [];
+      const S = this.S, rows = Array.isArray(body.rows) ? body.rows : [], diffs = []; let matched = 0;
       for (const r of rows) {
         const p = S.products.get(r.product_id); if (!p) continue; const nq = +r.new_qty; if (!(nq >= 0)) throw bad("كمية غير صحيحة للصنف «" + p.name + "»");
-        if (r.batch_id) { const b = S.batches.get(r.batch_id); if (!b || Math.abs(b.qtyRemaining - nq) < 1e-9) continue; diffs.push({ name: p.name, unit: p.unit, batch_no: b.batchNo, expiry: b.expiry, before: b.qtyRemaining, after: nq }); await this._commit("stock.adjust", { id: uuid(), productId: p.id, newQty: nq, batchId: b.id, newBatchId: uuid(), reason: "جرد", ts: this.ts(), cost: p.cost_usd }); }
-        else { const cur = stockOf(S, p.id); if (Math.abs(cur - nq) < 1e-9) continue; diffs.push({ name: p.name, unit: p.unit, batch_no: null, expiry: null, before: cur, after: nq }); await this._commit("stock.adjust", { id: uuid(), productId: p.id, newQty: nq, batchId: null, newBatchId: uuid(), reason: "جرد", ts: this.ts(), cost: p.cost_usd }); }
+        let before, cost, bno = null, ex = null, bid = null;
+        if (r.batch_id) { const b = S.batches.get(r.batch_id); if (!b) continue; before = b.qtyRemaining; cost = b.costUsd || p.cost_usd || 0; bno = b.batchNo; ex = b.expiry; bid = b.id; }
+        else { before = stockOf(S, p.id); cost = p.cost_usd || 0; }
+        if (Math.abs(before - nq) < 1e-9) { matched++; continue; }
+        diffs.push({ product_id: p.id, name: p.name, unit: p.unit, batch_no: bno, expiry: ex, before, after: nq, cost_usd: cost, value_usd: r2((nq - before) * cost) });
+        await this._commit("stock.adjust", { id: uuid(), productId: p.id, newQty: nq, batchId: bid, newBatchId: uuid(), reason: "جرد", ts: this.ts(), cost: p.cost_usd });
       }
-      return { ok: true, changed: diffs.length, diffs };
+      const loss = r2(diffs.filter(x => x.value_usd < 0).reduce((a, x) => a + x.value_usd, 0)), gain = r2(diffs.filter(x => x.value_usd > 0).reduce((a, x) => a + x.value_usd, 0));
+      if (diffs.length || matched) await this._commit("stocktake.log", { id: uuid(), ts: this.ts(), diffs, matched, uncounted: +body.uncounted || 0 });
+      return { ok: true, changed: diffs.length, matched, loss_usd: loss, gain_usd: gain, diffs };
     }
+    _stocktakes() { return this.S.stocktakes.slice().reverse().slice(0, 30).map(t => ({ id: t.id, ts: t.ts, changed: t.diffs.length, matched: t.matched, uncounted: t.uncounted, loss_usd: r2(t.diffs.filter(x => x.value_usd < 0).reduce((a, x) => a + x.value_usd, 0)), gain_usd: r2(t.diffs.filter(x => x.value_usd > 0).reduce((a, x) => a + x.value_usd, 0)), diffs: t.diffs })); }
     _yearReport(closeId) {
       const S = this.S, cl = closeId ? S.closes.find(c => c.id === closeId) : null; if (closeId && !cl) throw new ApiError(404, "السنة غير موجودة");
       const pd = periodData(S, closeId || null), tsOf = x => x.ts, all = pd.sales.map(tsOf).concat(pd.purchases.map(tsOf), pd.expenses.map(tsOf)).sort();
@@ -580,7 +590,7 @@
     }
     async _post(url, body) {
       if (this.transport) return this.transport(url, body);
-      const ac = typeof AbortController !== "undefined" ? new AbortController() : null, tm = ac && setTimeout(() => ac.abort(), 10000);
+      const ac = typeof AbortController !== "undefined" ? new AbortController() : null, tm = ac && setTimeout(() => ac.abort(), 30000);
       try {
         const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ac && ac.signal });
         if (!r.ok) throw new Error("HTTP " + r.status); return await r.json();
@@ -658,7 +668,7 @@
         const u = String(body.url || "").trim(); if (!u) throw bad("أدخل العنوان");
         this.meta.remotes = (this.meta.remotes || []); this.meta.remotes.push({ type: "lan", urls: [u] }); await this.store.setMeta("meta", this.meta); return this._info();
       }
-      if (path === "sync/relay" && method === "POST") { this.meta.relayUrl = String(body.url || "").trim().replace(/\/+$/, ""); await this.store.setMeta("meta", this.meta); return this._info(); }
+      if (path === "sync/relay" && method === "POST") { this.meta.relayUrl = String(body.url || "").trim().replace(/\/+$/, ""); this.meta.relayOff = !this.meta.relayUrl; await this.store.setMeta("meta", this.meta); return this._info(); }
       throw new ApiError(404, "مسار غير معروف");
     }
     _info() {
@@ -794,24 +804,25 @@
         const p = S.products.get(it.product_id); if (!p) throw bad("صنف غير موجود في الفاتورة");
         const qty = +it.qty || 0, price = +it.price || 0; const uo = unitOf(p, it.unit || "base"), unit = uo.key;
         if (qty <= 0 || price < 0) throw bad(`كمية/سعر غير صحيح للصنف «${p.name}»`);
-        const base = qty * uo.f, line = r2(price * qty);
+        const sz = isPackKey(uo.key) && +it.size > 0 ? +it.size : 0, base = qty * (sz || uo.f), line = r2(price * qty);
         need.set(p.id, (need.get(p.id) || 0) + base);
         if (!allowNeg && stockOf(S, p.id) + (edit ? edit.items.filter(x => x.productId === p.id).reduce((a, x) => a + x.qtyBase, 0) : 0) < need.get(p.id) - 1e-9) throw bad(`الكمية غير كافية للصنف «${p.name}»`);
-        lines.push({ productId: p.id, qty, unit, price, base: Math.round(base * 1e6) / 1e6, line }); subtotal += line;
+        lines.push({ productId: p.id, qty, unit, size: sz || undefined, price, base: Math.round(base * 1e6) / 1e6, line }); subtotal += line;
       }
       const discount = Math.max(0, +d.discount || 0), total = r2(Math.max(0, subtotal - discount));
       let paid = d.paid == null ? total : Math.max(0, Math.min(+d.paid, total)); const remaining = r2(total - paid);
       if (remaining > 0.005 && !cust) throw bad("البيع بالدين يحتاج اختيار زبون");
       let over = false; if (cust && remaining > 0.005 && (cust.credit_limit_usd || 0) > 0) over = this._debtUsd(cust.id, rate) - (edit && edit.customerId === cust.id ? toUsd(edit.total - edit.paid, edit.currency, rate) : 0) + toUsd(remaining, cur, rate) > cust.credit_limit_usd + 1e-6;
       const id = id0 || uuid(), n = ((S.devCounts[this.meta.deviceId] || { sale: 0 }).sale) + 1;
-      await this._commit(edit ? "sale.edit" : "sale.create", { id, replaces: edit ? edit.id : undefined, number: edit ? edit.number : this.devCode + "-" + String(n).padStart(4, "0"), ts: edit ? edit.ts : (d.ts || this.ts()), customerId: cust ? cust.id : null, currency: cur, rate, items: lines, subtotal: r2(subtotal), discount: r2(discount), total, paid: r2(paid), totalUsd: r2(toUsd(total, cur, rate)), note: d.note || "" });
+      await this._commit(edit ? "sale.edit" : "sale.create", { id, replaces: edit ? edit.id : undefined, number: edit ? edit.number : this.devCode + "-" + String(n).padStart(4, "0"), ts: this._okTs(d.ts) || (edit ? edit.ts : this.ts()), customerId: cust ? cust.id : null, currency: cur, rate, items: lines, subtotal: r2(subtotal), discount: r2(discount), total, paid: r2(paid), totalUsd: r2(toUsd(total, cur, rate)), note: d.note || "" });
       const r = this._saleDetail(id); r.over_credit_limit = over; return r;
     }
+    _okTs(t) { t = String(t || "").trim(); if (!/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2})?)?$/.test(t)) return null; if (t.length === 10) t += " 12:00:00"; else if (t.length === 16) t += ":00"; return t; }
     _saleDetail(id) {
       const S = this.S, s = S.sales.get(id); if (!s) throw new ApiError(404, "الفاتورة غير موجودة");
       const c = s.customerId ? S.customers.get(s.customerId) : null, u = S.users.get(s.userId), groups = new Map();
-      for (const it of s.items) { const k = it.productId + "|" + it.unit + "|" + it.price; const g = groups.get(k) || { product_id: it.productId, sold_unit: it.unit, price: it.price, qty_unit: 0, line_total: 0 }; g.qty_unit = r3(g.qty_unit + it.qtyUnit); g.line_total = r2(g.line_total + it.lineTotal); groups.set(k, g); }
-      const items = [...groups.values()].map(g => { const p = S.products.get(g.product_id) || {}; return Object.assign(g, { name: p.name, unit: p.unit, pack_unit: p.pack_unit, unit_label: p.unit ? unitOf(p, g.sold_unit).label : "" }); });
+      for (const it of s.items) { const k = it.productId + "|" + it.unit + "|" + it.price + "|" + (it.size || ""); const g = groups.get(k) || { product_id: it.productId, sold_unit: it.unit, size: it.size || null, price: it.price, qty_unit: 0, line_total: 0 }; g.qty_unit = r3(g.qty_unit + it.qtyUnit); g.line_total = r2(g.line_total + it.lineTotal); groups.set(k, g); }
+      const items = [...groups.values()].map(g => { const p = S.products.get(g.product_id) || {}; return Object.assign(g, { name: p.name, unit: p.unit, pack_unit: p.pack_unit, unit_label: p.unit ? (g.size ? String(p.pack_unit || "كيس").split(" ")[0] + " " + g.size + " " + p.unit : unitOf(p, g.sold_unit).label) : "" }); });
       return { id: s.id, number: s.number, ts: s.ts, customer_id: s.customerId, customer_name: c ? c.name : null, user_name: u ? u.name : null, currency: s.currency, rate: s.rate, subtotal: s.subtotal, discount: s.discount, total: s.total, paid: s.paid, total_usd: s.totalUsd, cost_usd: s.costUsd, note: s.note, voided: s.voided, archived: s.archived ? 1 : 0, edited: s.editedFrom ? 1 : 0, items, remaining: r2(s.total - s.paid) };
     }
     _range(q, full) { const f = (q.from || (full ? "0000-01-01" : this.today())), t = (q.to || (full ? "9999-12-31" : this.today())); return [f + " 00:00:00", t + " 23:59:59"]; }
@@ -831,7 +842,7 @@
         const p = S.products.get(it.product_id); if (!p) throw bad("صنف غير موجود");
         const qty = +it.qty || 0, cost = +it.cost || 0, uo = unitOf(p, it.unit || "base"), unit = uo.key;
         if (qty <= 0 || cost < 0) throw bad(`كمية/تكلفة غير صحيحة للصنف «${p.name}»`);
-        const base = qty * uo.f, line = r2(cost * qty); total += line;
+        const sz = isPackKey(uo.key) && +it.size > 0 ? +it.size : 0, base = qty * (sz || uo.f), line = r2(cost * qty); total += line;
         let expiry = (it.expiry || "").trim() || null;
         if (expiry && !/^\d{4}-\d{2}(-\d{2})?$/.test(expiry)) throw bad("صيغة تاريخ الصلاحية: YYYY-MM-DD");
         if (expiry && expiry.length === 7) expiry += "-28";
@@ -932,6 +943,7 @@
     }
     return out;
   }
+  const isPackKey = k => /^(pack|pk)/.test(k);
   const unitOf = (p, key) => unitsFor(p).find(u => u.key === key) || unitsFor(p)[0];
 
   const exported = { unitsFor, UNIT_NAMES: Object.keys(UNAME), create: async opts => { const e = new Engine(opts); await e.init(); return e; }, Engine, MemoryStore, ApiError, parseRateHtml, normDigits, normPin, normCode, b64uEnc, b64uDec, toHex, fromHex, randId, uuid, pbkdf2Hex, cmpEv, fmtTs, DEFAULTS, _internals: { APPLY, newState } };

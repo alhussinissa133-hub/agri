@@ -105,13 +105,18 @@ nav.bottom{display:none}
 .tabs button.on{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
 .offline{background:var(--warn-soft);color:var(--warn);padding:8px 12px;border-radius:10px;margin-bottom:10px;font-size:14px}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
-.chip2{border:1.5px solid var(--line);background:#fff;color:var(--ink);border-radius:12px;padding:8px 14px;min-height:44px;font-size:16px;cursor:pointer}
+.chip2{border:1.5px solid var(--line);background:var(--card);color:var(--ink);border-radius:12px;padding:8px 14px;min-height:44px;font-size:16px;cursor:pointer}
 .chip2.on{background:var(--brand);color:var(--brand-ink);border-color:var(--brand);font-weight:700}
 .pcard{border:1px solid var(--line);border-radius:14px;background:var(--card);padding:12px;margin-bottom:10px}
 .pcard h4{margin:0 0 6px;font-size:17px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .brow{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;background:var(--brand-soft);margin-top:6px;flex-wrap:wrap}
-.brow.exp{background:#fde4e1}.brow.soon{background:var(--warn-soft)}
+.brow.exp{background:var(--bad-soft)}.brow.soon{background:var(--warn-soft)}.brow.done{background:var(--brand-soft)}.brow.diff{background:var(--warn-soft)}
+.pcard.done{border-color:var(--brand)}.prog{height:10px;border-radius:99px;background:var(--line);overflow:hidden}.prog>i{display:block;height:100%;background:var(--brand);transition:width .25s}
+.okbtn{min-width:48px;background:var(--brand-soft);color:var(--brand);border:1px solid var(--brand)}.cathead{display:flex;align-items:center;gap:8px;margin:14px 0 6px;font-weight:700;color:var(--brand)}
+details.card>summary{cursor:pointer;font-weight:600}details.card[open]>summary{margin-bottom:8px}
 .brow .d{flex:1 1 150px;font-weight:700}.brow input{width:110px}
+.brow.cl .d{flex:1 1 100%}.brow.cl input{flex:1;width:auto;min-width:90px;font-size:18px}.brow.cl button{min-width:52px}
+@media(max-width:700px){.countbar{bottom:calc(66px + env(safe-area-inset-bottom))!important}.top .title{display:none}.top{justify-content:flex-start}.top .chip{flex:1;text-align:center;padding:6px 8px}}
 .countbar{position:sticky;bottom:0;background:var(--card);border-top:2px solid var(--brand);padding:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;z-index:5}
 #receipt{display:none}
 @media print{
@@ -124,8 +129,6 @@ nav.bottom{display:none}
 <body>
 <div id="app"></div>
 <div id="receipt"></div>
-<script src="lib/qrcode.js" onerror="this.remove()"></script>
-<script src="lib/jsQR.js" onerror="this.remove()"></script>
 <script src="seed-data.js"></script>
 <script src="engine.js"></script>
 <script src="store-idb.js"></script>
@@ -164,13 +167,14 @@ let ENGINE = null;
 const AGRI_HOST = window.agriHost || {};
 const IS_NATIVE = !!(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform());
 const ENGINE_READY = (async () => {
+  let defaultRelay = ""; try { defaultRelay = (await (await fetch("relay-config.json")).json()).url || ""; } catch { }
   ENGINE = await PharmaEngine.create({
-    store: new IdbStore(), seed: PHARMA_SEED,
+    store: new IdbStore(), seed: PHARMA_SEED, defaultRelay,
     fetchText: AGRI_HOST.fetchText ? u => AGRI_HOST.fetchText(u) : async u => (await fetch(u)).text(),
     getHosts: AGRI_HOST.lanHosts ? () => AGRI_HOST.lanHosts() : async () => []
   });
   if (AGRI_HOST.onSyncRequest) AGRI_HOST.onSyncRequest(req => ENGINE.handleSyncRequest(req).then(r => ({ ok: true, res: r }), e => ({ ok: false, status: e.status || 500, error: e.message })));
-  ENGINE.startAuto(30000);
+  ENGINE.startAuto(30000); ENGINE.on("sync", () => drawSync()); setInterval(() => drawSync(), 10000);
   const rateTick = () => ENGINE.autoRefreshRate().then(r => { if (r && S.user) { S.rate = r.use ? r : S.rate; try { drawRate(); } catch { } } });
   setTimeout(rateTick, 3000); setInterval(rateTick, 10 * 60000);
   ENGINE.on("change", ev => { if (ev && !ev.local && S.user) { clearTimeout(window.__rf); window.__rf = setTimeout(() => { try { loadBasics().then(() => { drawRate(); if (!$(".ov")) go(S.view); }); } catch { } }, 400); } });
@@ -206,7 +210,7 @@ function confirmBox(msg, okText = "تأكيد", danger = false) {
 /* ============================== الأسعار ============================== */
 const rateUse = () => S.rate?.use || 0;
 function priceBase(p, cur, tier) {            // سعر الوحدة الأساسية
-  const rate = rateUse(), w = tier === "w";
+  const rate = (S.view === "pos" && S.cart && S.cart.rate) || rateUse(), w = tier === "w";
   let u, s;
   if (p.price_mode === "SYP") { s = (w && p.price_wholesale_syp) ? p.price_wholesale_syp : p.price_syp; u = rate ? s / rate : 0; }
   else { u = (w && p.price_wholesale_usd) ? p.price_wholesale_usd : p.price_usd; s = u * rate; }
@@ -215,8 +219,10 @@ function priceBase(p, cur, tier) {            // سعر الوحدة الأسا�
 const r3 = x => Math.round((+x + Number.EPSILON) * 1000) / 1000;
 const unitsOf = p => PharmaEngine.unitsFor(p);
 const unitLabel = (p, key) => (unitsOf(p).find(u => u.key === key) || { label: p.unit }).label;
-function priceFor(p, cur, tier, unit) {
-  const b = priceBase(p, cur, tier), f = (unitsOf(p).find(u => u.key === (unit || "base")) || { f: 1 }).f;
+const isPackKey = k => /^(pack|pk)/.test(k || "");
+const unitF = (p, unit, size) => isPackKey(unit) && +size > 0 ? +size : (unitsOf(p).find(u => u.key === (unit || "base")) || { f: 1 }).f;
+function priceFor(p, cur, tier, unit, size) {
+  const b = priceBase(p, cur, tier), f = unitF(p, unit, size);
   if (f === 1) return b;
   const v = b * f; return cur === "USD" ? (v < 1 ? r3(v) : r2(v)) : (S.settings.round_syp === "1" ? Math.round(v) : r2(v));
 }
@@ -240,9 +246,9 @@ async function loadSuppliers() { S.suppliers = await api("suppliers"); }
 
 /* ============================== الدخول ============================== */
 async function showLogin() {
-  S.token = null; S.user = null;
-  let info = { shop: "", users: [] };
-  try { info = await api("public/users"); } catch { $("#app").innerHTML = `<div class="login card"><h1>تعذّر فتح قاعدة البيانات</h1><p class="mute">أعد تشغيل التطبيق.</p><button onclick="location.reload()">إعادة المحاولة</button></div>`; return; }
+  S.token = null; S.user = null; S.nav = [];
+  let info = store.get("login_cache", null) || { shop: "", users: [] }, fromCache = info.users.length > 0;
+  if (!fromCache) try { info = await api("public/users"); store.set("login_cache", info); } catch { $("#app").innerHTML = `<div class="login card"><h1>تعذّر فتح قاعدة البيانات</h1><p class="mute">أعد تشغيل التطبيق.</p><button onclick="location.reload()">إعادة المحاولة</button></div>`; return; }
   let sel = store.get("last_user", info.users[0]?.id), pin = "";
   const draw = () => {
     $("#app").innerHTML = `<div class="login card">
@@ -254,6 +260,7 @@ async function showLogin() {
     $$("[data-k]").forEach(b => b.onclick = () => key(b.dataset.k));
     $("#forgot").onclick = () => recoverModal(sel, info.users.find(u => u.id == sel));
   };
+  if (fromCache) api("public/users").then(x => { store.set("login_cache", x); if (JSON.stringify(x) !== JSON.stringify(info) && $(".login") && !pin) { info = x; if (!x.users.find(u => u.id == sel)) sel = x.users[0]?.id; draw(); } }).catch(() => { });
   const submit = guard(async () => {
     if (!sel || pin.length < 4) return;
     try {
@@ -301,6 +308,7 @@ function shell() {
   const items = NAV.filter(n => n[3] || S.user.role === "owner");
   $("#app").innerHTML = `
   <div class="top"><div class="title">${esc(S.settings.shop_name || "الصيدلية الزراعية")}</div>
+    <button class="chip" id="syncChip"></button>
     <button class="chip" id="rateChip"></button>
     <button class="chip" id="userChip">${esc(S.user.name)} ⏻</button></div>
   <div class="body">
@@ -309,8 +317,19 @@ function shell() {
   <nav class="bottom">${items.map(n => `<button data-v="${n[0]}"><span class="ic">${n[2]}</span><span>${n[1]}</span></button>`).join("")}</nav>`;
   $$("[data-v]").forEach(b => b.onclick = () => go(b.dataset.v));
   $("#userChip").onclick = async () => { if (await confirmBox("تسجيل الخروج؟", "خروج")) doLogout(); };
-  $("#rateChip").onclick = () => rateModal();
-  drawRate();
+  $("#rateChip").onclick = () => rateModal(); $("#syncChip").onclick = () => go("settings");
+  drawRate(); drawSync();
+}
+function drawSync() {
+  const c = $("#syncChip"); if (!c || !ENGINE) return;
+  const t = ENGINE._targets().length, ok = ENGINE.syncState && ENGINE.syncState.ok, at = ENGINE.meta.lastSyncAt;
+  let txt, tip;
+  if (!t) { txt = "⚪ محلي"; tip = "غير مربوط بجهاز آخر أو بخادم (يعمل محلياً بشكل كامل). اضغط للربط."; }
+  else if (ENGINE.syncing) { txt = "🔄 مزامنة…"; tip = "جارٍ المزامنة"; }
+  else if (ENGINE.syncState && ENGINE.syncState.at && !ok) { txt = "⚠ لا اتصال"; tip = "تعذّرت المزامنة، ستُعاد المحاولة تلقائياً. اضغط للتفاصيل."; }
+  else if (at) { txt = "✅ " + at.slice(11, 16); tip = "آخر مزامنة: " + at; }
+  else { txt = "🔄 بانتظار المزامنة"; tip = ""; }
+  c.textContent = txt; c.title = tip; c.classList.toggle("stale", !!t && !ENGINE.syncing && !!(ENGINE.syncState && ENGINE.syncState.at && !ok));
 }
 function drawRate() {
   const c = $("#rateChip"); if (!c) return;
@@ -325,7 +344,9 @@ function startRatePolling() {
   clearInterval(rateTimer);
   rateTimer = setInterval(async () => { try { S.rate = (await api("rate")).use ? await api("rate") : S.rate; drawRate(); } catch { } }, 120000);
 }
-function go(v) {
+S.nav = [];
+function go(v, o) {
+  if (!(o && o.back) && S.nav[S.nav.length - 1] !== v) S.nav.push(v);
   S.view = v;
   $$("[data-v]").forEach(b => b.classList.toggle("on", b.dataset.v === v));
   const fn = VIEWS[v]; if (!fn) return;
@@ -337,6 +358,17 @@ function go(v) {
   window.scrollTo(0, 0);
 }
 
+function goBack() {
+  const ov = $$(".ov").pop(); if (ov) { const x = ov.querySelector("[data-close]"); if (x) x.click(); else ov.remove(); return true; }
+  if (S.user && S.nav.length > 1) { S.nav.pop(); go(S.nav[S.nav.length - 1], { back: true }); return true; }
+  return false;
+}
+let lastBackAt = 0;
+document.addEventListener("keydown", e => { if (e.key === "Escape") goBack(); });
+try {
+  const A = window.Capacitor && Capacitor.Plugins && Capacitor.Plugins.App;
+  if (A && A.addListener) A.addListener("backButton", () => { if (goBack()) return; if (Date.now() - lastBackAt < 2000) { A.exitApp && A.exitApp(); } else { lastBackAt = Date.now(); toast("اضغط رجوع مرة أخرى للخروج"); } });
+} catch { }
 function rateModal() {
   const owner = S.user.role === "owner";
   modal("سعر الصرف", `
@@ -392,7 +424,7 @@ VIEWS.dash = async main => {
 };
 
 /* ============================== نقطة البيع ============================== */
-function newCart() { return { edit: null, cur: "SYP", tier: "r", items: [], customer_id: null, discount: "", paid: null, note: "" }; }
+function newCart() { return { edit: null, rate: null, date: "", origDate: "", cur: "SYP", tier: "r", items: [], customer_id: null, discount: "", paid: null, note: "" }; }
 function pendingQueue() { return []; }
 
 VIEWS.pos = async main => {
@@ -402,6 +434,10 @@ VIEWS.pos = async main => {
   main.innerHTML = `
   <div id="offbar"></div>
   ${cart.edit ? `<div class="offline" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><b class="grow">✏️ أنت تعدّل الفاتورة رقم ${esc(cart.edit.number)} — عدّل ثم اضغط حفظ</b><button class="sec" id="canceledit">إلغاء التعديل</button></div>` : ""}
+  <details class="card" id="rdbox" style="margin-bottom:10px" ${cart.edit || cart.rate || cart.date ? "open" : ""}><summary>📅 فاتورة قديمة؟ حدّد تاريخها وسعر الدولار وقتها</summary>
+    <div class="grid g2"><div class="field"><label class="f">تاريخ الفاتورة</label><input type="date" id="cdate" value="${esc(cart.date || "")}"></div>
+    <div class="field"><label class="f">سعر الدولار (ل.س) لهذه الفاتورة</label><input class="num" id="crate" inputmode="decimal" placeholder="${num(rateUse())}" value="${cart.rate || ""}"></div></div>
+    <div class="row wrap"><button class="sec sm" id="creprice">↻ إعادة تسعير الأصناف بهذا السعر</button><span class="small mute grow">اترك الحقلين فارغين لاستعمال اليوم وسعر الصرف الحالي.${cart.edit ? " أسعار الأصناف لا تتغير تلقائياً أثناء التعديل." : ""}</span></div></details>
   <div class="pos">
     <div class="card"><h3>الأصناف</h3>
       <input id="q" placeholder="ابحث بالاسم أو المادة الفعالة أو الباركود…" autocomplete="off">
@@ -417,7 +453,7 @@ VIEWS.pos = async main => {
     $$("#curSeg button", main).forEach(b => b.classList.toggle("on", b.dataset.c === cart.cur));
     $$("#tierSeg button", main).forEach(b => b.classList.toggle("on", b.dataset.t === cart.tier));
   };
-  const reprice = () => cart.items.forEach(i => i.price = priceFor(i.p, cart.cur, cart.tier, i.unit));
+  const reprice = () => cart.items.forEach(i => i.price = priceFor(i.p, cart.cur, cart.tier, i.unit, i.size));
   $$("#curSeg button", main).forEach(b => b.onclick = () => {
     if (b.dataset.c === cart.cur) return;
     if (cart.paid !== null) { const t = total(); cart.paid = null; }
@@ -425,6 +461,9 @@ VIEWS.pos = async main => {
   });
   $$("#tierSeg button", main).forEach(b => b.onclick = () => { cart.tier = b.dataset.t; reprice(); draw(); });
   $("#clr", main).onclick = () => { S.cart = newCart(); VIEWS.pos(main); };
+  $("#cdate", main).onchange = e => { cart.date = e.target.value; };
+  $("#crate", main).onchange = e => { const v = +NORM(e.target.value); cart.rate = v >= 10 && v <= 3000 ? v : null; if (!cart.edit) { reprice(); drawCart(); } else toast("اضغط «إعادة تسعير» إن أردت تغيير الأسعار بهذا السعر"); };
+  $("#creprice", main).onclick = () => { reprice(); drawCart(); toast("أُعيد تسعير الأصناف"); };
   const ce = $("#canceledit", main); if (ce) ce.onclick = () => { S.cart = newCart(); VIEWS.pos(main); };
 
   const sub = () => r2(cart.items.reduce((a, i) => a + i.qty * i.price, 0));
@@ -464,6 +503,7 @@ VIEWS.pos = async main => {
         <div class="row wrap" style="margin-top:6px">
           <div style="width:96px"><label class="f">الكمية</label><input class="num" data-qty inputmode="decimal" value="${i.qty}"></div>
           <div style="flex-basis:100%;order:-1">${unitsOf(i.p).length > 1 ? `<label class="f">بأي وحدة تبيع؟</label><div class="chips">${unitsOf(i.p).map(u => `<button type="button" class="chip2 ${i.unit === u.key ? "on" : ""}" data-uk="${u.key}">${esc(u.label)}</button>`).join("")}</div>` : `<span class="mute small">الوحدة: ${esc(i.p.unit)}</span>`}</div>
+          ${isPackKey(i.unit) ? `<div style="width:150px"><label class="f">وزن هذه العبوة (${esc(i.p.unit)})</label><input class="num" data-size inputmode="decimal" value="${i.size || unitF(i.p, i.unit)}"></div>` : ""}
           <div class="grow"><label class="f">السعر (${cart.cur === "USD" ? "$" : "ل.س"})</label><input class="num" data-price inputmode="decimal" value="${i.price}"></div>
           <div style="min-width:90px;text-align:left" class="num"><label class="f">المجموع</label><b>${money(r2(i.qty * i.price), cart.cur)}</b></div>
         </div></div>`).join("");
@@ -472,7 +512,8 @@ VIEWS.pos = async main => {
       $("[data-del]", el).onclick = () => { cart.items.splice(+el.dataset.i, 1); drawCart(); };
       $("[data-qty]", el).oninput = e => { i.qty = Math.max(0, +e.target.value || 0); drawTotals(); $(".num b", el).textContent = money(r2(i.qty * i.price), cart.cur); };
       $("[data-price]", el).oninput = e => { i.price = Math.max(0, +e.target.value || 0); drawTotals(); $(".num b", el).textContent = money(r2(i.qty * i.price), cart.cur); };
-      $$("[data-uk]", el).forEach(bt => bt.onclick = () => { i.unit = bt.dataset.uk; i.price = priceFor(i.p, cart.cur, cart.tier, i.unit); drawCart(); });
+      $$("[data-uk]", el).forEach(bt => bt.onclick = () => { i.unit = bt.dataset.uk; i.size = null; i.price = priceFor(i.p, cart.cur, cart.tier, i.unit); drawCart(); });
+      const sz = $("[data-size]", el); if (sz) sz.oninput = e => { i.size = Math.max(0, +NORM(e.target.value) || 0) || null; i.price = priceFor(i.p, cart.cur, cart.tier, i.unit, i.size); $("[data-price]", el).value = i.price; drawTotals(); $(".num b", el).textContent = money(r2(i.qty * i.price), cart.cur); };
     });
     drawTotals(true);
   }
@@ -521,8 +562,8 @@ VIEWS.pos = async main => {
     if (t - paid > 0.004 && !cart.customer_id) return toast("اختر زبوناً لتسجيل الدين", true);
     const body = {
       uuid: uuid(), ts: new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 19).replace("T", " "),
-      currency: cart.cur, rate: cart.edit ? cart.edit.rate : rateUse(), customer_id: cart.customer_id, discount: +cart.discount || 0, paid, note: cart.note,
-      items: cart.items.map(i => ({ product_id: i.p.id, qty: i.qty, unit: i.unit, price: i.price }))
+      currency: cart.cur, rate: cart.rate || rateUse(), ts: (cart.date && cart.date !== cart.origDate) ? cart.date : undefined, customer_id: cart.customer_id, discount: +cart.discount || 0, paid, note: cart.note,
+      items: cart.items.map(i => ({ product_id: i.p.id, qty: i.qty, unit: i.unit, size: i.size || undefined, price: i.price }))
     };
     $("#save", main).disabled = true;
     try {
@@ -592,9 +633,9 @@ function saleModal(s, reload) {
       });
       const ed = $("#ed", b); if (ed) ed.onclick = guard(async () => {
         await loadProducts();
-        const items = s.items.map(g => ({ p: S.products.find(x => x.id === g.product_id), unit: g.sold_unit, qty: g.qty_unit, price: g.price }));
+        const items = s.items.map(g => ({ p: S.products.find(x => x.id === g.product_id), unit: g.sold_unit, size: g.size || null, qty: g.qty_unit, price: g.price }));
         if (items.some(i => !i.p)) throw new Error("أحد الأصناف لم يعد موجوداً");
-        S.cart = { edit: { id: s.id, number: s.number, rate: s.rate }, cur: s.currency, tier: "r", items, customer_id: s.customer_id || null, discount: s.discount || "", paid: (s.paid >= s.total - 0.004 ? null : s.paid), note: s.note || "" };
+        S.cart = { edit: { id: s.id, number: s.number }, rate: s.rate, date: s.ts.slice(0, 10), origDate: s.ts.slice(0, 10), cur: s.currency, tier: "r", items, customer_id: s.customer_id || null, discount: s.discount || "", paid: (s.paid >= s.total - 0.004 ? null : s.paid), note: s.note || "" };
         close(); go("pos");
       });
     }
@@ -797,11 +838,13 @@ VIEWS.purchases = async main => {
     $("#items", main).innerHTML = P.items.map((i, idx) => `<div class="cartline" data-i="${idx}"><div class="row"><b class="grow">${esc(i.p.name)}</b><button class="ghost bad-t" data-del>✕</button></div>
       <div class="row wrap" style="margin-top:6px"><div style="width:90px"><label class="f">الكمية</label><input class="num" data-k="qty" inputmode="decimal" value="${i.qty}"></div>
       ${unitsOf(i.p).filter(u => !/^u\d/.test(u.key)).length > 1 ? `<div style="flex-basis:100%"><label class="f">اشتريت بأي وحدة؟</label><div class="chips">${unitsOf(i.p).filter(u => !/^u\d/.test(u.key)).map(u => `<button type="button" class="chip2 ${i.unit === u.key ? "on" : ""}" data-puk="${u.key}">${esc(u.label)}</button>`).join("")}</div></div>` : ""}
+      ${isPackKey(i.unit) ? `<div style="width:150px"><label class="f">وزن هذه العبوة (${esc(i.p.unit)}) — عدّله إن اختلف</label><input class="num" data-psize inputmode="decimal" value="${i.size || unitF(i.p, i.unit)}"></div>` : ""}
       <div style="width:120px"><label class="f">التكلفة (${P.cur === "USD" ? "$" : "ل.س"}) للوحدة</label><input class="num" data-k="cost" inputmode="decimal" value="${i.cost || ""}"></div>
       <div style="width:150px"><label class="f">تاريخ الصلاحية</label><input type="date" data-k="expiry" value="${esc(i.expiry)}"></div>
       <div style="width:110px"><label class="f">رقم الدفعة</label><input data-k="batch_no" value="${esc(i.batch_no)}"></div></div></div>`).join("");
     $$(".cartline", main).forEach(el => { const i = P.items[+el.dataset.i]; $("[data-del]", el).onclick = () => { P.items.splice(+el.dataset.i, 1); drawItems(); };
-      $$("[data-puk]", el).forEach(bt => bt.onclick = () => { i.unit = bt.dataset.puk; drawItems(); });
+      $$("[data-puk]", el).forEach(bt => bt.onclick = () => { i.unit = bt.dataset.puk; i.size = null; drawItems(); });
+      const ps = $("[data-psize]", el); if (ps) ps.oninput = e => { i.size = +NORM(e.target.value) || null; };
       $$("[data-k]", el).forEach(inp => { inp.oninput = inp.onchange = e => { const k = inp.dataset.k; i[k] = (k === "qty" || k === "cost") ? (+e.target.value || 0) : e.target.value; drawTotals(); }; }); });
     drawTotals(true);
   }
@@ -818,7 +861,7 @@ VIEWS.purchases = async main => {
         if (!P.items.length) return toast("أضف أصنافاً", true);
         if (P.items.some(i => !(i.cost > 0)) && !(await confirmBox("يوجد صنف بتكلفة صفر، متابعة؟"))) return;
         const tt = total(), pd = P.paid === null ? tt : Math.min(+P.paid || 0, tt);
-        await api("purchases", { method: "POST", body: { supplier_id: P.supplier_id, currency: P.cur, invoice_no: P.invoice_no, discount: +P.discount || 0, paid: pd, rate: rateUse(), items: P.items.map(i => ({ product_id: i.p.id, qty: i.qty, unit: i.unit, cost: i.cost, expiry: i.expiry, batch_no: i.batch_no })) } });
+        await api("purchases", { method: "POST", body: { supplier_id: P.supplier_id, currency: P.cur, invoice_no: P.invoice_no, discount: +P.discount || 0, paid: pd, rate: rateUse(), items: P.items.map(i => ({ product_id: i.p.id, qty: i.qty, unit: i.unit, size: i.size || undefined, cost: i.cost, expiry: i.expiry, batch_no: i.batch_no })) } });
         S.purch = null; toast("تم إدخال البضاعة للمخزون"); VIEWS.purchases(main);
       });
     }
@@ -908,7 +951,8 @@ VIEWS.settings = async main => {
   <div class="card" style="margin-top:12px"><h3>🔗 ربط الأجهزة والمزامنة</h3>
    <p class="small mute">هذا التثبيت مستقل ببياناته. لربطه مع جهاز آخر (هاتف ↔ كمبيوتر) استخدم رمز QR. مجموعة هذا التثبيت: <b class="num">${esc(info.group.id)}</b> — عدد الأجهزة المرتبطة: <b>${info.devices}</b></p>
    <p class="small" id="syncst">${info.lastSyncAt ? "آخر مزامنة ناجحة: " + esc(info.lastSyncAt) : "لم تتم مزامنة بعد (يعمل التطبيق محلياً بشكل كامل)."}</p>
-   <div class="row wrap"><button class="sec" id="qrshow">📤 عرض رمز الربط (QR)</button><button class="sec" id="qrscan">📷 مسح رمز من جهاز آخر</button><button id="syncnow">🔄 مزامنة الآن</button></div>
+   <div class="row wrap"><button class="sec" id="qrshow">📤 عرض رمز الربط (QR)</button><button class="sec" id="qrscan">📷 مسح رمز من جهاز آخر</button><button id="syncnow">🔄 مزامنة الآن</button>${info.relayUrl ? `<button class="sec" id="relaytest">اختبار الخادم</button>` : ""}</div>
+   ${((info.last && info.last.results) || []).filter(r => r.error).map(r => `<div class="small bad-t">⚠ ${esc(r.url)}: ${esc(r.error)}</div>`).join("")}
    <div class="field" style="margin-top:10px"><label class="f">خادم الوسيط (للمزامنة عبر الإنترنت عندما لا تكونون على نفس الشبكة) — اختياري</label><div class="row"><input id="relay" class="grow" placeholder="https://example.com" value="${esc(info.relayUrl)}" style="direction:ltr"><button class="sec" id="relaysave">حفظ</button></div></div>
    ${info.remotes.length ? `<div class="small mute">أجهزة الشبكة المحلية المحفوظة:</div>${info.remotes.map(r => `<div class="row small"><span class="grow num" style="direction:ltr">${esc(r.urls.join(" , "))}</span><button class="ghost" data-rmremote="${esc(r.urls[0])}">حذف</button></div>`).join("")}` : ""}
    <p class="small mute">المزامنة تعمل تلقائياً كلما كان التطبيق مفتوحاً وكان الجهاز الآخر متاحاً (نفس الواي فاي أو عبر الخادم الوسيط). بدون ذلك يُحفظ كل شيء على الجهاز وينتقل لاحقاً.</p></div>
@@ -1008,10 +1052,11 @@ if (AGRI_HOST.onUpdate) AGRI_HOST.onUpdate(st => { UPD = st; drawUpd(); if (st.s
 setTimeout(() => { if (!AGRI_HOST.checkUpdate) runUpdateCheck().then(u => { if (u.state === "apk") toast("يتوفر إصدار جديد " + u.version + " (الإعدادات ← التحديثات)"); }); }, 15000);
 
 /* ============================== المخزون والجرد ============================== */
-S.inv = { filter: "stock", q: "", counting: false, counts: {} };
 const expState = (days, warn) => days == null ? "" : days < 0 ? "exp" : days <= warn ? "soon" : "";
+const stockLine = r => `${num(r.stock, 3)} ${esc(r.unit)}` + (r.pack_unit && r.pack_factor > 1 && r.stock >= r.pack_factor ? ` <span class="small mute">(≈ ${num(r2(r.stock / r.pack_factor))} ${esc(String(r.pack_unit).split(" ")[0])})</span>` : "");
+S.inv = { filter: "stock", q: "" };
 VIEWS.inventory = async main => {
-  const d = await api("inventory"), I = S.inv, warn = d.warn_days;
+  const [d, hist] = await Promise.all([api("inventory"), api("stocktakes")]), I = S.inv, warn = d.warn_days;
   const vis = r => {
     if (I.q && !(r.name + " " + (r.category || "")).includes(I.q.trim())) return false;
     if (I.filter === "stock") return r.stock > 0 || r.batches.length > 0;
@@ -1019,54 +1064,111 @@ VIEWS.inventory = async main => {
     if (I.filter === "exp") return r.batches.some(b => b.days_left != null && b.days_left <= warn);
     return true;
   };
-  const key = (pid, bid) => pid + "|" + (bid || "");
   const draw = () => {
-    const rows = d.rows.filter(vis), n = Object.values(I.counts).filter(v => v !== "").length;
+    const rows = d.rows.filter(vis);
     $("#invlist", main).innerHTML = rows.map(r => {
       const multi = r.batches.length > 1;
-      return `<div class="pcard"><h4><span class="grow">${esc(r.name)}</span><span class="num">${stockText({ stock: r.stock, unit: r.unit, pack_unit: r.pack_unit, pack_factor: r.pack_factor })}</span></h4>
-      ${multi ? `<div class="small warn-t">⚠ هذا الصنف موجود بـ ${r.batches.length} دفعات بتواريخ صلاحية مختلفة (الأقرب انتهاءً يُباع أولاً)</div>` : ""}
+      return `<div class="pcard"><h4><span class="grow">${esc(r.name)}</span><span class="num">${stockLine(r)}</span></h4>
+      ${multi ? `<div class="small warn-t">⚠ موجود بـ ${r.batches.length} دفعات بتواريخ صلاحية مختلفة (الأقرب انتهاءً يُباع أولاً)</div>` : ""}
       ${r.min_stock > 0 && r.stock <= r.min_stock ? `<div class="small bad-t">الكمية منخفضة (الحد الأدنى ${num(r.min_stock)})</div>` : ""}
       ${r.oversold > 0 ? `<div class="small bad-t">بيع منه ${num(r.oversold, 3)} ${esc(r.unit)} قبل إدخاله للمخزون</div>` : ""}
-      ${r.batches.map(b => { const st = expState(b.days_left, warn), cnt = I.counts[key(r.id, b.id)] ?? "";
-        return `<div class="brow ${st}"><div class="d">📅 ${b.expiry ? esc(b.expiry) : "بدون تاريخ"} ${st === "exp" ? '<span class="bad-t">(منتهية)</span>' : st === "soon" ? '<span class="warn-t">(قريبة الانتهاء)</span>' : ""}<div class="small mute">دفعة: ${esc(b.batch_no || "-")}</div></div>
-          <b class="num">${num(b.qty, 3)} ${esc(r.unit)}</b>
-          ${I.counting ? `<input class="num" inputmode="decimal" data-p="${r.id}" data-b="${b.id}" data-sys="${b.qty}" placeholder="العدّ الفعلي" value="${esc(cnt)}"><span class="small num" data-diff></span>` : ""}</div>`; }).join("")}
-      ${!r.batches.length && I.counting ? `<div class="brow"><div class="d">لا توجد دفعات</div><input class="num" inputmode="decimal" data-p="${r.id}" data-b="" data-sys="${r.stock}" placeholder="العدّ الفعلي" value="${esc(I.counts[key(r.id, "")] ?? "")}"><span class="small num" data-diff></span></div>` : ""}
-      ${I.counting ? `<button class="ghost" data-addb="${r.id}">+ وجدت دفعة بتاريخ مختلف</button>` : ""}</div>`;
+      ${r.batches.map(b => { const st = expState(b.days_left, warn);
+        return `<div class="brow ${st}"><div class="d">📅 ${b.expiry ? esc(b.expiry) : "بدون تاريخ"} ${st === "exp" ? '<span class="bad-t">(منتهية)</span>' : st === "soon" ? '<span class="warn-t">(قريبة الانتهاء)</span>' : ""}<div class="small mute">دفعة: ${esc(b.batch_no || "-")}</div></div><b class="num">${num(b.qty, 3)} ${esc(r.unit)}</b></div>`; }).join("")}</div>`;
     }).join("") || '<div class="card mute" style="text-align:center">لا توجد أصناف مطابقة</div>';
-    $$("[data-p]", main).forEach(inp => {
-      const upd = () => { const sys = +inp.dataset.sys, v = inp.value.trim(), dd = inp.parentElement.querySelector("[data-diff]"); I.counts[key(inp.dataset.p, inp.dataset.b)] = v;
-        if (dd) { if (v === "" || isNaN(+(NORM(v)))) { dd.textContent = ""; } else { const df = r3(+NORM(v) - sys); dd.textContent = df === 0 ? "✓ مطابق" : (df > 0 ? "+" : "") + df; dd.className = "small num " + (df === 0 ? "ok-t" : "bad-t"); } }
-        $("#cnt", main) && ($("#cnt", main).textContent = Object.values(I.counts).filter(x => x !== "").length); };
-      inp.oninput = upd; upd();
-    });
-    $$("[data-addb]", main).forEach(b => b.onclick = () => addBatchModal(d.rows.find(r => r.id === b.dataset.addb), () => VIEWS.inventory(main)));
   };
   main.innerHTML = `<h2>المخزون</h2>
-  <div class="card"><input id="iq" placeholder="ابحث باسم الصنف…" value="${esc(I.q)}">
-   <div class="chips" style="margin-top:8px">${[["stock", "الموجود"], ["low", "الناقص"], ["exp", "قريب الانتهاء"], ["all", "كل الأصناف"]].map(([k, l]) => `<button class="chip2 ${I.filter === k ? "on" : ""}" data-f="${k}">${l}</button>`).join("")}</div>
-   <div class="row wrap" style="margin-top:10px">${I.counting ? `<b class="grow">📝 وضع الجرد: اكتب الكمية الفعلية لكل سطر (اترك فارغاً ما لم تعدّه)</b><button class="sec" id="cprint">🖨 ورقة الجرد</button>` : `<button id="cstart">📝 بدء الجرد</button><button class="sec" id="cprint">🖨 طباعة ورقة الجرد</button>`}</div></div>
+  <div class="card"><div class="row wrap"><button id="cstart" style="min-height:52px;font-size:17px" class="grow">📝 بدء الجرد</button><button class="sec" id="cprint">🖨 ورقة جرد للطباعة</button></div>
+   <p class="small mute" style="margin:8px 0 0">الجرد خطوة بخطوة: تعدّ البضاعة وتضغط ✓ للمطابق أو تكتب الكمية الفعلية، ثم تراجع الفروقات وتعتمد.</p></div>
+  <div class="card" style="margin-top:10px"><input id="iq" placeholder="ابحث باسم الصنف…" value="${esc(I.q)}">
+   <div class="chips" style="margin-top:8px">${[["stock", "الموجود"], ["low", "الناقص"], ["exp", "قريب الانتهاء"], ["all", "كل الأصناف"]].map(([k, l]) => `<button class="chip2 ${I.filter === k ? "on" : ""}" data-f="${k}">${l}</button>`).join("")}</div></div>
   <div id="invlist" style="margin-top:12px"></div>
-  ${I.counting ? `<div class="countbar"><span class="grow">عدد الأسطر المعدودة: <b id="cnt" class="num">0</b></span><button id="capply">✔ اعتماد الجرد</button><button class="sec" id="ccancel">إلغاء</button></div>` : ""}`;
+  ${hist.length ? `<details class="card" style="margin-top:12px"><summary>سجل عمليات الجرد السابقة (${hist.length})</summary>${hist.map((h, i) => `<div class="row small" style="padding:8px 0;border-bottom:1px solid var(--line)"><span class="grow">${esc(h.ts.slice(0, 16))} — ${h.changed} فرق، ${h.matched} مطابق${h.uncounted ? "، " + h.uncounted + " لم يُعدّ" : ""}<br><span class="bad-t">نقص ${usd(Math.abs(h.loss_usd))}</span> · <span class="ok-t">زيادة ${usd(h.gain_usd)}</span></span><button class="sec sm" data-h="${i}">التفاصيل</button></div>`).join("")}</details>` : ""}`;
   $("#iq", main).oninput = e => { I.q = e.target.value; draw(); };
   $$("[data-f]", main).forEach(b => b.onclick = () => { I.filter = b.dataset.f; VIEWS.inventory(main); });
-  const cs = $("#cstart", main); if (cs) cs.onclick = () => { I.counting = true; I.counts = {}; I.filter = "stock"; VIEWS.inventory(main); };
-  $("#cprint", main).onclick = () => {
-    const rows = d.rows.filter(r => r.stock > 0 || r.batches.length).map(r => r.batches.length ? r.batches.map((b, i) => `<tr><td>${i ? "" : esc(r.name)}</td><td>${esc(b.expiry || "-")}</td><td>${esc(b.batch_no || "-")}</td><td class="num">${num(b.qty, 3)} ${esc(r.unit)}</td><td style="width:90px"></td></tr>`).join("") : `<tr><td>${esc(r.name)}</td><td>-</td><td>-</td><td class="num">${num(r.stock, 3)} ${esc(r.unit)}</td><td></td></tr>`).join("");
-    $("#receipt").innerHTML = `<h2 style="text-align:center">ورقة جرد المخزون — ${esc(S.settings.shop_name || "")}</h2><p>التاريخ: ${esc(todayStr())} &nbsp; القائم بالجرد: ____________</p><table style="width:100%"><tr><th>الصنف</th><th>الصلاحية</th><th>الدفعة</th><th>بالنظام</th><th>العدّ الفعلي</th></tr>${rows}</table>`; window.print();
+  $("#cstart", main).onclick = () => go("stocktake");
+  $("#cprint", main).onclick = () => printCountSheet(d);
+  $$("[data-h]", main).forEach(b => b.onclick = () => { const h = hist[+b.dataset.h]; modal("جرد " + esc(h.ts.slice(0, 16)), diffTable(h.diffs), { wide: true }); });
+  draw();
+};
+function diffTable(diffs) {
+  return diffs.length ? `<div class="scroll"><table><tr><th>الصنف</th><th>الصلاحية</th><th>النظام</th><th>الفعلي</th><th>الفرق</th><th>القيمة $</th></tr>${diffs.map(x => { const df = r3(x.after - x.before); return `<tr><td>${esc(x.name)}</td><td class="small">${esc(x.expiry || "-")}</td><td class="num">${num(x.before, 3)}</td><td class="num"><b>${num(x.after, 3)}</b> ${esc(x.unit)}</td><td class="num ${df < 0 ? "bad-t" : "ok-t"}">${df > 0 ? "+" : ""}${num(df, 3)}</td><td class="num">${usd(x.value_usd || 0)}</td></tr>`; }).join("")}</table></div>` : "<p>كل الكميات مطابقة ✓</p>";
+}
+function printCountSheet(d) {
+  const rows = d.rows.filter(r => r.stock > 0 || r.batches.length).map(r => r.batches.length ? r.batches.map((b, i) => `<tr><td>${i ? "" : esc(r.name)}</td><td>${esc(b.expiry || "-")}</td><td>${esc(b.batch_no || "-")}</td><td class="num">${num(b.qty, 3)} ${esc(r.unit)}</td><td style="width:90px"></td></tr>`).join("") : `<tr><td>${esc(r.name)}</td><td>-</td><td>-</td><td class="num">${num(r.stock, 3)} ${esc(r.unit)}</td><td></td></tr>`).join("");
+  $("#receipt").innerHTML = `<h2 style="text-align:center">ورقة جرد المخزون — ${esc(S.settings.shop_name || "")}</h2><p>التاريخ: ${esc(todayStr())} &nbsp; القائم بالجرد: ____________</p><table style="width:100%"><tr><th>الصنف</th><th>الصلاحية</th><th>الدفعة</th><th>بالنظام</th><th>العدّ الفعلي</th></tr>${rows}</table>`; window.print();
+}
+
+/* ---- الجرد الموجَّه: يُحفظ تلقائياً ويمكن المتابعة لاحقاً ---- */
+const CNT_KEY = "agri_count_v1";
+const loadCount = () => { try { return JSON.parse(localStorage.getItem(CNT_KEY)) || {}; } catch { return {}; } };
+const saveCount = c => { try { localStorage.setItem(CNT_KEY, JSON.stringify(c)); } catch { } };
+S.st = { cat: "", q: "", only: false, all: false };
+VIEWS.stocktake = async main => {
+  const d = await api("inventory"), T = S.st, warn = d.warn_days; let C = loadCount();
+  const key = (pid, bid) => pid + "|" + (bid || "");
+  const base = d.rows.filter(r => r.stock > 0 || r.batches.length), pool = T.all ? d.rows : base;
+  const linesOf = r => r.batches.length ? r.batches.map(b => ({ k: key(r.id, b.id), r, sys: b.qty, exp: b.expiry, bno: b.batch_no, days: b.days_left, cost: b.cost_usd })) : [{ k: key(r.id, ""), r, sys: r.stock, exp: null, bno: null, days: null, cost: 0, whole: true }];
+  const filled = k => C[k] !== undefined && C[k] !== "";
+  const cats = [...new Set(base.map(r => r.category || "بدون فئة"))];
+  const allLines = base.flatMap(linesOf);
+  const doneProd = r => linesOf(r).some(l => filled(l.k));
+  const cnt = () => base.filter(doneProd).length;
+  const draw = () => {
+    const n = cnt(), tot = base.length, pct = tot ? Math.round(n * 100 / tot) : 0;
+    $("#prog", main).innerHTML = `<div class="row small"><b class="grow">تم عدّ ${n} من ${tot} صنفاً</b><span class="num">${pct}%</span></div><div class="prog"><i style="width:${pct}%"></i></div>`;
+    $$("[data-cat]", main).forEach(b => b.classList.toggle("on", (b.dataset.cat || "") === T.cat));
+    let rows = pool.filter(r => (!T.cat || (r.category || "بدون فئة") === T.cat) && (!T.q || (r.name + " " + (r.category || "")).includes(T.q.trim())) && (!T.only || !doneProd(r)));
+    let html = "", cur = null;
+    for (const r of rows) {
+      const c = r.category || "بدون فئة";
+      if (c !== cur && !T.q) { cur = c; const ls = base.filter(x => (x.category || "بدون فئة") === c); html += `<div class="cathead"><span class="grow">${esc(c)} <span class="small mute">(${ls.filter(doneProd).length}/${ls.length})</span></span><button class="sec sm" data-allok="${esc(c)}">✓ الباقي مطابق</button></div>`; }
+      const ls = linesOf(r), dn = doneProd(r);
+      html += `<div class="pcard ${dn ? "done" : ""}"><h4><span class="grow">${esc(r.name)}</span><span class="small mute">النظام: <b class="num">${stockLine(r)}</b></span></h4>
+      ${ls.map(l => { const st = expState(l.days, warn), v = C[l.k] ?? "";
+        return `<div class="brow cl ${st}" data-line="${esc(l.k)}"><div class="d">${l.whole ? "الكمية الإجمالية" : "📅 " + (l.exp ? esc(l.exp) : "بدون تاريخ")} ${st === "exp" ? '<span class="bad-t">(منتهية)</span>' : st === "soon" ? '<span class="warn-t">(قريبة)</span>' : ""}<div class="small mute">${l.whole ? "" : "دفعة: " + esc(l.bno || "-") + " — "}النظام ${num(l.sys, 3)} ${esc(r.unit)}</div></div>
+          <input class="num" inputmode="decimal" data-k="${esc(l.k)}" data-sys="${l.sys}" placeholder="الفعلي" value="${esc(v)}"><button class="okbtn" data-match="${esc(l.k)}" data-sys="${l.sys}" title="الكمية مطابقة">✓</button><button class="sec" data-zero="${esc(l.k)}" title="لا يوجد منها">0</button><span class="small num" data-diff></span></div>`; }).join("")}
+      <button class="ghost" data-addb="${r.id}">+ وجدت دفعة بتاريخ آخر</button></div>`;
+    }
+    $("#stlist", main).innerHTML = html || '<div class="card mute" style="text-align:center">لا توجد أصناف مطابقة</div>';
+    const upd = inp => { const sys = +inp.dataset.sys, v = inp.value.trim(), line = inp.closest(".brow"), dd = $("[data-diff]", line); C[inp.dataset.k] = v; saveCount(C);
+      line.classList.remove("done", "diff"); dd.textContent = ""; dd.className = "small num";
+      if (v !== "" && !isNaN(+NORM(v))) { const df = r3(+NORM(v) - sys); dd.textContent = df === 0 ? "✓ مطابق" : (df > 0 ? "زيادة +" : "نقص ") + df; dd.classList.add(df === 0 ? "ok-t" : "bad-t"); line.classList.add(df === 0 ? "done" : "diff"); }
+      $("#prog", main).firstElementChild && ($("#prog", main).innerHTML = `<div class="row small"><b class="grow">تم عدّ ${cnt()} من ${tot} صنفاً</b><span class="num">${tot ? Math.round(cnt() * 100 / tot) : 0}%</span></div><div class="prog"><i style="width:${tot ? Math.round(cnt() * 100 / tot) : 0}%"></i></div>`); };
+    $$("input[data-k]", main).forEach(inp => { inp.oninput = () => upd(inp); if (inp.value !== "") upd(inp); });
+    $$("[data-match]", main).forEach(b => b.onclick = () => { const inp = $(`input[data-k="${CSS.escape(b.dataset.match)}"]`, main); inp.value = b.dataset.sys; upd(inp); });
+    $$("[data-zero]", main).forEach(b => b.onclick = () => { const inp = $(`input[data-k="${CSS.escape(b.dataset.zero)}"]`, main); inp.value = "0"; upd(inp); });
+    $$("[data-allok]", main).forEach(b => b.onclick = () => { allLines.filter(l => (l.r.category || "بدون فئة") === b.dataset.allok && !filled(l.k)).forEach(l => C[l.k] = String(l.sys)); saveCount(C); draw(); toast("تم اعتماد الباقي كمطابق"); });
+    $$("[data-addb]", main).forEach(b => b.onclick = () => addBatchModal(d.rows.find(r => r.id === b.dataset.addb), () => VIEWS.stocktake(main)));
   };
-  const ca = $("#capply", main); if (ca) {
-    $("#ccancel", main).onclick = () => { I.counting = false; I.counts = {}; VIEWS.inventory(main); };
-    ca.onclick = guard(async () => {
-      const rows = []; for (const [k, v] of Object.entries(I.counts)) { if (v === "") continue; const [pid, bid] = k.split("|"), q = +NORM(v); if (isNaN(q) || q < 0) throw new Error("كمية غير صحيحة"); rows.push({ product_id: pid, batch_id: bid || null, new_qty: q }); }
-      if (!rows.length) throw new Error("لم تُدخل أي كمية");
-      if (!(await confirmBox("سيتم تعديل المخزون حسب العدّ الفعلي لـ " + rows.length + " سطر. متابعة؟", "اعتماد"))) return;
-      const r = await api("stock/count", { method: "POST", body: { rows } });
-      I.counting = false; I.counts = {};
-      modal("نتيجة الجرد", r.diffs.length ? `<p>تم تعديل ${r.diffs.length} سطر:</p><div class="scroll"><table><tr><th>الصنف</th><th>الصلاحية</th><th>قبل</th><th>بعد</th></tr>${r.diffs.map(x => `<tr><td>${esc(x.name)}</td><td class="small">${esc(x.expiry || "-")}</td><td class="num">${num(x.before, 3)}</td><td class="num"><b>${num(x.after, 3)}</b> ${esc(x.unit)}</td></tr>`).join("")}</table></div>` : "<p>كل الكميات مطابقة، لم يتغير شيء ✓</p>", { onClose: () => VIEWS.inventory(main) });
-    });
-  }
+  main.innerHTML = `<div class="row"><h2 class="grow" style="margin:0">📝 الجرد</h2><button class="sec sm" id="sprint">🖨 ورقة</button></div>
+  <div class="card small" style="margin-top:8px">① اعدّ البضاعة فعلياً. ② إن كانت مطابقة لما بالنظام اضغط <b>✓</b>، وإلا اكتب الكمية الفعلية (أو <b>0</b> إن لم يوجد). ③ اضغط «مراجعة واعتماد». يُحفظ عملك تلقائياً وتقدر تكمل لاحقاً.</div>
+  <div class="card" style="margin-top:8px"><div id="prog"></div></div>
+  <div class="card" style="margin-top:8px"><input id="sq" placeholder="ابحث باسم الصنف…" value="${esc(T.q)}">
+   <div class="chips" style="margin-top:8px"><button class="chip2" data-cat="">كل الفئات</button>${cats.map(c => `<button class="chip2" data-cat="${esc(c)}">${esc(c)}</button>`).join("")}</div>
+   <div class="row wrap" style="margin-top:8px"><label class="row small"><input type="checkbox" id="only" style="width:auto;min-height:0" ${T.only ? "checked" : ""}> إخفاء ما تم عدّه</label><label class="row small"><input type="checkbox" id="allp" style="width:auto;min-height:0" ${T.all ? "checked" : ""}> إظهار الأصناف غير الموجودة بالنظام</label></div></div>
+  <div id="stlist"></div>
+  <div class="countbar"><button class="sec" id="sreset">مسح العدّ</button><span class="grow"></span><button id="sreview" style="min-height:52px;font-size:17px">مراجعة واعتماد ←</button></div>`;
+  $("#sq", main).oninput = e => { T.q = e.target.value; draw(); };
+  $$("[data-cat]", main).forEach(b => b.onclick = () => { T.cat = b.dataset.cat; draw(); });
+  $("#only", main).onchange = e => { T.only = e.target.checked; draw(); };
+  $("#allp", main).onchange = e => { T.all = e.target.checked; draw(); };
+  $("#sprint", main).onclick = () => printCountSheet(d);
+  $("#sreset", main).onclick = guard(async () => { if (await confirmBox("سيُمسح كل ما أدخلته في هذا الجرد (لا يتغير المخزون). متابعة؟", "مسح", true)) { C = {}; saveCount(C); VIEWS.stocktake(main); } });
+  $("#sreview", main).onclick = guard(async () => {
+    const rows = [], diffs = []; let matched = 0, bad = 0;
+    for (const l of allLines) { if (!filled(l.k)) continue; const q = +NORM(C[l.k]); if (isNaN(q) || q < 0) { bad++; continue; } const [pid, bid] = l.k.split("|"); rows.push({ product_id: pid, batch_id: bid || null, new_qty: q });
+      if (Math.abs(q - l.sys) < 1e-9) matched++; else diffs.push({ name: l.r.name, unit: l.r.unit, expiry: l.exp, before: l.sys, after: q, value_usd: r2((q - l.sys) * (l.cost || 0)) }); }
+    if (bad) throw new Error("توجد كمية غير صحيحة في " + bad + " سطر");
+    if (!rows.length) throw new Error("لم تُدخل أي كمية بعد");
+    const unc = allLines.length - rows.length, loss = diffs.filter(x => x.value_usd < 0).reduce((a, x) => a + x.value_usd, 0), gain = diffs.filter(x => x.value_usd > 0).reduce((a, x) => a + x.value_usd, 0);
+    modal("مراجعة الجرد", `<div class="grid g3"><div class="card tile"><div class="l">مطابق</div><div class="v ok-t">${matched}</div></div><div class="card tile"><div class="l">فروقات</div><div class="v ${diffs.length ? "warn-t" : ""}">${diffs.length}</div></div><div class="card tile"><div class="l">لم يُعدّ (يبقى كما هو)</div><div class="v">${unc}</div></div></div>
+      <p class="small"><span class="bad-t">قيمة النقص: ${usd(Math.abs(loss))}</span> &nbsp; <span class="ok-t">قيمة الزيادة: ${usd(gain)}</span></p>${diffTable(diffs)}
+      <div class="row" style="margin-top:12px"><button class="grow" id="sdo" style="min-height:52px">✔ اعتماد الجرد وتعديل المخزون</button><button class="sec grow" id="sback">رجوع للتعديل</button></div>`, { wide: true, onMount: (b, close) => {
+      $("#sback", b).onclick = close;
+      $("#sdo", b).onclick = guard(async () => { const r = await api("stock/count", { method: "POST", body: { rows, uncounted: unc } }); C = {}; saveCount(C); close();
+        modal("✓ تم الجرد", `<p>تم تعديل ${r.changed} سطر، و${r.matched} مطابق.</p>${diffTable(r.diffs)}<div class="row" style="margin-top:10px"><button class="sec grow" id="pp">🖨 طباعة النتيجة</button><button class="grow" id="gg">تم</button></div>`, { wide: true, onClose: () => go("inventory"), onMount: (bb, cl) => { $("#gg", bb).onclick = cl; $("#pp", bb).onclick = () => { $("#receipt").innerHTML = `<h2 style="text-align:center">نتيجة الجرد — ${esc(S.settings.shop_name || "")}</h2><p>${esc(todayStr())}</p>${diffTable(r.diffs)}`; window.print(); }; } }); });
+    } });
+  });
   draw();
 };
 function addBatchModal(r, done) {
@@ -1141,8 +1243,9 @@ function bindYear(main) {
 }
 
 /* ============================== واجهة الربط ============================== */
-function qrSvg(text) {
-  if (typeof qrcode === "undefined") return null;
+const loadLib = src => new Promise(res => { if (document.querySelector(`script[data-lib="${src}"]`)) return res(true); const t = document.createElement("script"); t.src = src; t.dataset.lib = src; t.onload = () => res(true); t.onerror = () => { t.remove(); res(false); }; document.head.appendChild(t); });
+async function qrSvg(text) {
+  await loadLib("lib/qrcode.js"); if (typeof qrcode === "undefined") return null;
   const q = qrcode(0, "L"); q.addData(text); q.make(); const n = q.getModuleCount(); let d = "";
   for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (q.isDark(r, c)) d += `M${c + 4} ${r + 4}h1v1h-1z`;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${n + 8} ${n + 8}" style="width:100%;max-width:320px;display:block;margin:auto;background:#fff" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
@@ -1157,7 +1260,7 @@ async function joinWithCode(code, done) {
 }
 function bindSync(main, info) {
   $("#qrshow", main).onclick = guard(async () => {
-    const r = await api("sync/pairing"), svg = qrSvg(r.code);
+    const r = await api("sync/pairing"), svg = await qrSvg(r.code);
     modal("رمز الربط", `<p class="small mute">على الجهاز الآخر: الإعدادات ← «مسح رمز من جهاز آخر». هذا الرمز سرّي: من يملكه يستطيع الانضمام لبياناتك، لا تصوّره ولا ترسله لغيرك.</p>
       ${svg || '<div class="card small">تعذّر رسم QR على هذا الجهاز؛ استخدم الرمز النصي بالأسفل.</div>'}
       ${r.hosts.length ? "" : '<p class="small mute">لم يُكتشف عنوان شبكة محلية. المزامنة ستعتمد على الخادم الوسيط إن حددته.</p>'}
@@ -1169,6 +1272,7 @@ function bindSync(main, info) {
     if (r.nothing) throw new Error("لا يوجد جهاز مرتبط بعد. اربط جهازاً بالـ QR أولاً.");
     toast(r.ok ? "تمت المزامنة ✓" : "تعذّر الوصول للجهاز الآخر (" + ((r.results[0] || {}).error || "") + ")", !r.ok); go("settings");
   });
+  const rt = $("#relaytest", main); if (rt) rt.onclick = guard(async () => { try { const r = await fetch(info.relayUrl.replace(/\/+$/, "") + "/"); const j = await r.json(); toast(j.service === "agri-relay" ? "الخادم يعمل ✓" : "العنوان يعمل لكنه ليس خادم المزامنة", j.service !== "agri-relay"); } catch (e) { toast("تعذّر الوصول للخادم: " + e.message, true); } });
   $("#relaysave", main).onclick = guard(async () => { await api("sync/relay", { method: "POST", body: { url: $("#relay", main).value } }); toast("تم الحفظ"); });
   $$("[data-rmremote]", main).forEach(b => b.onclick = guard(async () => { await api("sync/remote/remove", { method: "POST", body: { url: b.dataset.rmremote } }); go("settings"); }));
   $("#qrscan", main).onclick = () => {
@@ -1179,7 +1283,7 @@ function bindSync(main, info) {
       onMount: async (b, close) => {
         $("#pj", b).onclick = guard(async () => { const c = $("#pc", b).value.trim(); if (!c) return; close(); await joinWithCode(c, () => go("settings")); });
         try {
-          if (typeof jsQR === "undefined") throw new Error("no jsQR");
+          await loadLib("lib/jsQR.js"); if (typeof jsQR === "undefined") throw new Error("no jsQR");
           stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
           const v = $("#vid", b); v.srcObject = stream; await v.play(); const cv = document.createElement("canvas"), cx = cv.getContext("2d", { willReadFrequently: true });
           const tick = async () => {
