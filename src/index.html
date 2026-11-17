@@ -5,16 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#2f6b3a">
 <title>محاسبة الصيدلية الزراعية</title>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem("agri-theme")||"dark"}catch(e){document.documentElement.dataset.theme="dark"}</script>
 <style>
 :root{
   --bg:#f4f6f1; --card:#fff; --ink:#1d2a1f; --mute:#667365; --line:#dde3d8;
   --brand:#2f6b3a; --brand-ink:#fff; --brand-soft:#e4efe4; --warn:#b26a00; --warn-soft:#fff1d6;
   --bad:#b3261e; --bad-soft:#fde4e1; --ok:#1b7a3a; --shadow:0 1px 3px rgba(0,0,0,.08);
 }
-@media (prefers-color-scheme:dark){
-  :root{--bg:#141a15;--card:#1d261f;--ink:#e8efe8;--mute:#9aa99b;--line:#2f3b31;--brand:#5fa86b;--brand-ink:#0d1a10;
-    --brand-soft:#243a28;--warn:#e0a33a;--warn-soft:#3a2f15;--bad:#ff8a80;--bad-soft:#3d1f1c;--ok:#6fd08a;--shadow:none}
-}
+:root[data-theme="dark"]{--bg:#070b0c;--card:#0f1619;--ink:#e9f1ef;--mute:#7f9490;--line:#1b2a2d;--brand:#2fd0b5;--brand-ink:#03211d;
+    --brand-soft:#10292a;--warn:#f0a94a;--warn-soft:#2e2412;--bad:#ff7f78;--bad-soft:#341a19;--ok:#43d9a0;--shadow:none}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:var(--ink);font-family:"Segoe UI",Tahoma,"Noto Naskh Arabic","Noto Sans Arabic",Arial,sans-serif;font-size:16px}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -118,6 +117,50 @@ details.card>summary{cursor:pointer;font-weight:600}details.card[open]>summary{m
 .brow.cl .d{flex:1 1 100%}.brow.cl input{flex:1;width:auto;min-width:90px;font-size:18px}.brow.cl button{min-width:52px}
 @media(max-width:700px){.countbar{bottom:calc(66px + env(safe-area-inset-bottom))!important}.top .title{display:none}.top{justify-content:flex-start}.top .chip{flex:1;text-align:center;padding:6px 8px}}
 .countbar{position:sticky;bottom:0;background:var(--card);border-top:2px solid var(--brand);padding:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;z-index:5}
+
+/* ===== مظهر اللوحة الداكنة ===== */
+:root[data-theme="dark"] body{background:radial-gradient(1200px 500px at 70% -10%,#0d2a28 0%,transparent 60%),var(--bg);background-attachment:fixed}
+:root[data-theme="dark"] .top{background:rgba(15,22,25,.85);backdrop-filter:blur(8px);color:var(--ink);border-bottom:1px solid var(--line)}
+:root[data-theme="dark"] .chip{background:#142226;border:1px solid var(--line)}
+:root[data-theme="dark"] nav.side{background:transparent}
+:root[data-theme="dark"] nav.side button.on{background:#12302e;color:var(--brand);box-shadow:inset -3px 0 0 var(--brand)}
+:root[data-theme="dark"] .card{border-radius:18px;background:linear-gradient(180deg,#121b1e,#0e1518)}
+.dgrid>*,.dgrid3>*{min-width:0}.vbars{overflow:hidden}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:12px}
+.kpi{padding:6px 4px}.kpi .l{font-size:11px;letter-spacing:.04em;color:var(--mute);display:flex;gap:6px;align-items:center}
+.kpi .v{font-size:34px;font-weight:300;line-height:1.15;margin-top:4px}
+.badge{display:inline-block;font-size:11px;padding:2px 8px;border-radius:8px;background:var(--brand-soft);color:var(--ok);margin-inline-start:6px;vertical-align:middle}
+.badge.w{background:var(--warn-soft);color:var(--warn)}.badge.b{background:var(--bad-soft);color:var(--bad)}
+.dgrid{display:grid;grid-template-columns:1.5fr 1fr;gap:12px;margin-bottom:12px}
+.dgrid3{display:grid;grid-template-columns:1fr 1.5fr 1fr;gap:12px}
+@media(max-width:1000px){.dgrid,.dgrid3{grid-template-columns:1fr}}
+.chead{display:flex;align-items:center;gap:10px;margin-bottom:10px}.chead .ic{width:30px;height:30px;border-radius:9px;background:var(--brand-soft);display:grid;place-items:center;font-size:15px}
+.chead b{flex:1;font-weight:500}.rng{display:inline-flex;gap:2px;background:var(--bg);border-radius:99px;padding:3px}
+.rng button{min-height:26px;padding:2px 12px;font-size:12px;background:transparent;color:var(--mute);border-radius:99px;font-weight:500}.rng button.on{background:var(--ink);color:var(--bg)}
+.legend{display:flex;gap:22px;margin-bottom:6px}.legend div{font-size:11px;color:var(--mute)}.legend b{display:block;font-size:17px;font-weight:400;color:var(--ink)}
+.chart{position:relative}.chart svg{width:100%;height:auto;display:block;direction:ltr}
+.chart .ln{fill:none;stroke-width:2;stroke-linecap:round;stroke-dasharray:1;stroke-dashoffset:1;animation:draw 1.4s ease forwards}
+@keyframes draw{to{stroke-dashoffset:0}}
+.chart .col{fill:transparent}.chart .col.on{fill:rgba(47,208,181,.16)}
+.tip{position:absolute;top:8px;pointer-events:none;background:rgba(18,28,31,.95);border:1px solid var(--line);border-radius:12px;padding:8px 12px;font-size:12px;min-width:130px;opacity:0;transition:opacity .15s;z-index:3;direction:rtl}
+.tip.on{opacity:1}.tip i{display:inline-block;width:7px;height:7px;border-radius:50%;margin-inline-end:6px}.tip div{display:flex;justify-content:space-between;gap:14px;margin-top:3px}
+.gw{position:relative;width:230px;max-width:100%;height:135px;flex:none}.gauge{display:flex;gap:14px;align-items:center;flex-wrap:wrap;justify-content:center}.gauge svg{width:230px;max-width:100%}
+.gauge .mid{position:absolute;left:0;right:0;top:62px;text-align:center;font-size:44px;font-weight:300;pointer-events:none;direction:ltr}
+.gbox{flex:1;min-width:150px;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:14px;padding:12px}.gbox .t{font-size:10px;letter-spacing:.06em;color:var(--mute)}.gbox .n{font-size:28px;font-weight:300}
+.vbars{display:flex;align-items:flex-end;gap:10px;height:190px;padding-top:6px}.vb{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:2px;min-width:0}
+.vb .seg2{width:100%;max-width:26px;height:5px;border-radius:2px;background:var(--brand);opacity:0;animation:pop .35s ease forwards}.vb .seg2.hi{background:#8af0dc}.vb .seg2.lo{background:#c24b4b}
+@keyframes pop{to{opacity:.95}}.vb small{font-size:10px;color:var(--mute);margin-top:6px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.vb em{font-style:normal;font-size:11px}
+.atab{display:flex;gap:14px;font-size:13px;margin-bottom:8px;color:var(--mute)}.atab button{background:transparent;color:var(--mute);min-height:28px;padding:2px 0;font-weight:500;border-radius:0;border-bottom:2px solid transparent}.atab button.on{color:var(--ink);border-color:var(--brand)}
+.atab span{background:var(--bg);border-radius:6px;padding:0 6px;font-size:11px;margin-inline-start:4px}
+.atable td,.atable th{padding:10px 6px}.atable tr[data-go]{cursor:pointer}.atable tr[data-go]:hover{background:rgba(47,208,181,.06)}
+.st{display:inline-block;padding:3px 10px;border-radius:99px;font-size:12px;background:var(--brand-soft);color:var(--brand)}.st.w{background:var(--warn-soft);color:var(--warn)}.st.b{background:var(--bad-soft);color:var(--bad)}
+.ai{position:relative;overflow:hidden;text-align:center;background:radial-gradient(260px 200px at 50% 20%,rgba(47,208,181,.25),transparent 70%),#0b1214!important}
+.orb{width:64px;height:64px;border-radius:50%;margin:6px auto 10px;background:radial-gradient(circle at 50% 60%,#05090a 55%,#2fd0b5 58%,#0f6f63 75%,transparent 77%);box-shadow:0 0 30px rgba(47,208,181,.55),inset 0 0 12px rgba(47,208,181,.6);animation:orb 3.2s ease-in-out infinite}
+@keyframes orb{50%{box-shadow:0 0 52px rgba(47,208,181,.85),inset 0 0 18px rgba(47,208,181,.8);transform:scale(1.05)}}
+.ai .t{font-size:13px}.ai .s{font-size:11px;color:var(--mute)}.ai .msg{font-size:18px;margin:12px 0;line-height:1.5}
+.ai .pr{height:4px;border-radius:9px;background:#1b2a2d;overflow:hidden;margin:10px 0 14px}.ai .pr i{display:block;height:100%;background:linear-gradient(90deg,var(--warn),#ffd27a)}
+.ai .btns{display:flex;gap:8px;justify-content:center}.ai .btns button{border-radius:99px;padding:8px 20px}
+.fade{animation:fade .5s ease both}@keyframes fade{from{opacity:0;transform:translateY(8px)}}
 #receipt{display:none}
 @media print{
   body *{visibility:hidden} #receipt,#receipt *{visibility:visible}
@@ -310,6 +353,7 @@ function shell() {
   <div class="top"><div class="title">${esc(S.settings.shop_name || "الصيدلية الزراعية")}</div>
     <button class="chip" id="syncChip"></button>
     <button class="chip" id="rateChip"></button>
+    <button class="chip" id="themeChip" title="تبديل المظهر"></button>
     <button class="chip" id="userChip">${esc(S.user.name)} ⏻</button></div>
   <div class="body">
     <nav class="side">${items.map(n => `<button data-v="${n[0]}"><span>${n[2]}</span><span>${n[1]}</span></button>`).join("")}</nav>
@@ -317,6 +361,8 @@ function shell() {
   <nav class="bottom">${items.map(n => `<button data-v="${n[0]}"><span class="ic">${n[2]}</span><span>${n[1]}</span></button>`).join("")}</nav>`;
   $$("[data-v]").forEach(b => b.onclick = () => go(b.dataset.v));
   $("#userChip").onclick = async () => { if (await confirmBox("تسجيل الخروج؟", "خروج")) doLogout(); };
+  const th = () => document.documentElement.dataset.theme; const drawTh = () => $("#themeChip").textContent = th() === "dark" ? "☀️" : "🌙";
+  $("#themeChip").onclick = () => { const n = th() === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = n; try { localStorage.setItem("agri-theme", n); } catch (e) {} drawTh(); }; drawTh();
   $("#rateChip").onclick = () => rateModal(); $("#syncChip").onclick = () => go("settings");
   drawRate(); drawSync();
 }
@@ -399,28 +445,98 @@ const VIEWS = {};
 VIEWS.dash = async main => {
   const d = await api("dashboard"), owner = S.user.role === "owner";
   const q = pendingQueue().length;
-  main.innerHTML = `
-  ${!S.rate ? `<div class="card" style="border-color:var(--warn);margin-bottom:12px"><b class="warn-t">لا يوجد سعر صرف.</b> ${owner ? "اضغط على السعر بالأعلى لإدخاله أو جلبه من الليرة اليوم." : "اطلب من المدير إدخاله."}</div>` : ""}
+  const warnBox = `${!S.rate ? `<div class="card" style="border-color:var(--warn);margin-bottom:12px"><b class="warn-t">لا يوجد سعر صرف.</b> ${owner ? "اضغط على السعر بالأعلى لإدخاله أو جلبه من الليرة اليوم." : "اطلب من المدير إدخاله."}</div>` : ""}
   ${q ? `<div class="offline">⚠ ${q} فاتورة محفوظة على هذا الجهاز بانتظار الإرسال للسيرفر.</div>` : ""}
-  ${owner && !S.user.has_recovery ? `<div class="offline" data-go="settings" style="cursor:pointer">⚠ لم تنشئ رمز استعادة بعد. إن نسيت الرمز لن تستطيع الدخول من الشاشة. اضغط هنا للإنشاء (الإعدادات).</div>` : ""}
-  <div class="grid g4" style="margin-bottom:12px">
-    <div class="card tile"><div class="l">مبيعات اليوم</div><div class="v num">${usd(d.today.revenue_usd)}</div><div class="small mute">${d.today.invoices} فاتورة</div></div>
-    ${owner ? `<div class="card tile"><div class="l">ربح اليوم</div><div class="v num ${d.today.profit_usd < 0 ? "bad-t" : "ok-t"}">${usd(d.today.profit_usd)}</div></div>` : ""}
-    <div class="card tile"><div class="l">مبيعات الشهر</div><div class="v num">${usd(d.month.revenue_usd)}</div><div class="small mute">${d.month.invoices} فاتورة</div></div>
-    ${owner ? `<div class="card tile"><div class="l">ربح الشهر</div><div class="v num ${d.month.profit_usd < 0 ? "bad-t" : "ok-t"}">${usd(d.month.profit_usd)}</div></div>` : ""}
+  ${owner && !S.user.has_recovery ? `<div class="offline" data-go="settings" style="cursor:pointer">⚠ لم تنشئ رمز استعادة بعد. إن نسيت الرمز لن تستطيع الدخول من الشاشة. اضغط هنا للإنشاء (الإعدادات).</div>` : ""}`;
+  const hello = (() => { const h = new Date().getHours(); return h < 12 ? "صباح الخير" : h < 18 ? "نهارك سعيد" : "مساء الخير"; })();
+  if (!owner) {
+    main.innerHTML = `${warnBox}<h2 class="fade">${hello} ${esc(S.user.name)}</h2><div class="kpis fade"><div class="kpi card"><div class="l">مبيعات اليوم</div><div class="v num">${usd(d.today.revenue_usd)}</div><div class="small mute">${d.today.invoices} فاتورة</div></div></div>
+    <button style="width:100%;min-height:54px" data-go="pos">🧾 فاتورة بيع جديدة</button>`;
+    $$("[data-go]", main).forEach(e => e.onclick = () => go(e.dataset.go)); return;
+  }
+  const A = d.attention, cash = d.cash_balance || {};
+  const firstExp = A.expiring[0], exp30 = A.expiring.filter(x => x.days <= 30).length;
+  /* رسالة المساعد: أهم شيء يحتاج انتباهاً */
+  let ins = { msg: "كل شيء بخير اليوم. لا نواقص ولا صلاحيات قريبة.", tab: null, label: "", pct: 100 };
+  if (firstExp) ins = { msg: `${A.expiring.length} دفعة قاربت انتهاء صلاحيتها، أقربها «${firstExp.name}» ${firstExp.days < 0 ? "منتهية منذ " + (-firstExp.days) + " يوم" : "بعد " + firstExp.days + " يوم"}. اعرضها بسعر مخفّض أو أرجعها للمورد.`, tab: "exp", label: "راجع الصلاحيات", pct: Math.max(8, Math.min(100, 100 - firstExp.days)) };
+  else if (A.low.length) ins = { msg: `${A.low.length} صنف وصل للحد الأدنى، أولها «${A.low[0].name}». جهّز طلبية للمورد.`, tab: "low", label: "راجع النواقص", pct: 60 };
+  else if (A.debts.length) ins = { msg: `أكبر دين على «${A.debts[0].name}» بقيمة ${usd(A.debts[0].usd)}. تواصل معه للتحصيل.`, tab: "debt", label: "راجع الديون", pct: 40 };
+  main.innerHTML = `${warnBox}
+  <div class="fade"><h2 style="font-size:30px;font-weight:300;margin:0">نظرة عامة</h2><div class="mute small" style="margin-bottom:14px">${hello} ${esc(S.user.name)}، ${A.low.length + A.expiring.length ? `${A.low.length + A.expiring.length} أمر يحتاج انتباهك اليوم` : "لا شيء عاجل اليوم"}</div></div>
+  <div class="kpis fade">
+    <div class="kpi"><div class="l">▣ مبيعات اليوم</div><div class="v num">${usd(d.today.revenue_usd)}</div><div class="small mute">${d.today.invoices} فاتورة</div></div>
+    <div class="kpi"><div class="l">▣ ربح اليوم</div><div class="v num ${d.today.profit_usd < 0 ? "bad-t" : ""}">${usd(d.today.profit_usd)}</div></div>
+    <div class="kpi"><div class="l">▣ مبيعات الشهر</div><div class="v num">${usd(d.month.revenue_usd)}<span class="badge">${d.month.invoices} فاتورة</span></div></div>
+    <div class="kpi"><div class="l">▣ ربح الشهر</div><div class="v num ${d.month.profit_usd < 0 ? "bad-t" : ""}">${usd(d.month.profit_usd)}</div></div>
+    <div class="kpi" data-go="customers" style="cursor:pointer"><div class="l">▣ ديون الزبائن</div><div class="v num">${usd(d.customer_debts_usd || 0)}${A.debts.length ? `<span class="badge w">${A.debts.length} زبون</span>` : ""}</div></div>
+    <div class="kpi"><div class="l">▣ مستحق للموردين</div><div class="v num">${usd(d.supplier_debts_usd || 0)}</div></div>
+    <div class="kpi"><div class="l">▣ قيمة المخزون</div><div class="v num">${usd(d.inventory_value_usd || 0)}</div></div>
+    <div class="kpi"><div class="l">▣ الصندوق</div><div class="num" style="font-size:20px;margin-top:8px">${usd(cash.USD || 0)}</div><div class="num small mute">${syp(cash.SYP || 0)}</div></div>
   </div>
-  ${owner ? `<div class="grid g4" style="margin-bottom:12px">
-    <div class="card tile" data-go="customers"><div class="l">ديون الزبائن (بالدولار)</div><div class="v num warn-t">${usd(d.customer_debts_usd || 0)}</div></div>
-    <div class="card tile"><div class="l">مستحق للموردين</div><div class="v num">${usd(d.supplier_debts_usd || 0)}</div></div>
-    <div class="card tile"><div class="l">قيمة المخزون (تكلفة)</div><div class="v num">${usd(d.inventory_value_usd || 0)}</div></div>
-    <div class="card tile"><div class="l">الصندوق</div><div class="num" style="font-weight:700">${usd(d.cash_balance?.USD || 0)}</div><div class="num" style="font-weight:700">${syp(d.cash_balance?.SYP || 0)}</div></div>
+  <div class="dgrid fade">
+    <div class="card"><div class="chead"><span class="ic">📈</span><b>المبيعات مقابل المشتريات</b><span class="rng" id="rng"><button data-r="7">7 أيام</button><button data-r="30" class="on">30 يوماً</button><button data-r="90">90 يوماً</button></span></div>
+      <div class="legend" id="lgd"></div><div class="chart" id="chart"></div></div>
+    <div class="card"><div class="chead"><span class="ic">🛡️</span><b>صحة المخزون</b></div><div class="gauge" id="gauge"></div></div>
   </div>
-  <div class="grid g2">
-    <div class="card" data-go="rep-stock"><h3>⏳ صلاحيات قريبة</h3><div class="v" style="font-size:26px;font-weight:700">${d.expiring}</div><div class="small mute">دفعات تنتهي خلال ${S.settings.expiry_warn_days} يوماً أو منتهية</div></div>
-    <div class="card" data-go="rep-stock"><h3>📉 نواقص المخزون</h3><div style="font-size:26px;font-weight:700">${d.low_stock}</div><div class="small mute">أصناف وصلت للحد الأدنى</div></div>
-  </div>` : ""}
-  <div class="row" style="margin-top:14px"><button class="grow" data-go="pos">🧾 فاتورة بيع جديدة</button></div>`;
-  $$("[data-go]", main).forEach(e => e.onclick = () => { const g = e.dataset.go; if (g === "rep-stock") { S.repTab = "stock"; go("reports"); } else go(g); });
+  <div class="dgrid3 fade">
+    <div class="card"><div class="chead"><span class="ic">🗂️</span><b>مبيعات الشهر حسب الفئة</b></div><div class="vbars" id="vbars"></div></div>
+    <div class="card"><div class="chead"><span class="ic">⚠️</span><b>يحتاج انتباه</b></div><div class="atab" id="atab"></div><div class="scroll" id="atable"></div></div>
+    <div class="card ai" id="ai"><div class="orb"></div><div class="t">مساعد الصيدلية</div><div class="s">ملاحظة ذكية · راجعها أولاً</div>
+      <div class="msg">${esc(ins.msg)}</div><div class="pr"><i style="width:${ins.pct}%"></i></div>
+      <div class="btns">${ins.tab ? `<button id="aiGo">${ins.label}</button>` : ""}<button class="sec" id="aiNo">${ins.tab ? "تجاهل" : "حسناً"}</button></div></div>
+  </div>
+  <div class="row" style="margin-top:14px"><button class="grow" data-go="pos" style="min-height:52px">🧾 فاتورة بيع جديدة</button></div>`;
+  $$("[data-go]", main).forEach(e => e.onclick = () => go(e.dataset.go));
+  /* ---- الرسم البياني ---- */
+  const W = 640, H = 210, PL = 6, PB = 24;
+  let rng = 30;
+  const draw = () => {
+    let pts = d.series.slice(-rng); if (rng === 90) { const g = []; for (let i = 0; i < pts.length; i += 3) { const c = pts.slice(i, i + 3); g.push({ d: c[0].d, sales: c.reduce((a, x) => a + x.sales, 0), purchases: c.reduce((a, x) => a + x.purchases, 0) }); } pts = g; }
+    const n = pts.length, mx = Math.max(1, ...pts.map(p => Math.max(p.sales, p.purchases))) * 1.15, X = i => PL + (W - 2 * PL) * (n === 1 ? .5 : i / (n - 1)), Y = v => H - PB - (H - PB - 10) * v / mx;
+    const path = k => { const P = pts.map((p, i) => [X(i), Y(p[k])]); let t = `M${P[0][0]},${P[0][1]}`; for (let i = 0; i < P.length - 1; i++) { const a = P[i - 1] || P[i], b = P[i], c = P[i + 1], e = P[i + 2] || c; t += ` C${b[0] + (c[0] - a[0]) / 6},${b[1] + (c[1] - a[1]) / 6} ${c[0] - (e[0] - b[0]) / 6},${c[1] - (e[1] - b[1]) / 6} ${c[0]},${c[1]}`; } return t; };
+    const pa = path("sales"), pb = path("purchases"), back = pb.replace(/^M/, "L");
+    const rev = pts.map((p, i) => [X(i), Y(p.purchases)]).reverse(); let area = pa; area += ` L${rev[0][0]},${rev[0][1]}`; for (let i = 0; i < rev.length - 1; i++) { const a = rev[i - 1] || rev[i], b = rev[i], c = rev[i + 1], e = rev[i + 2] || c; area += ` C${b[0] + (c[0] - a[0]) / 6},${b[1] + (c[1] - a[1]) / 6} ${c[0] - (e[0] - b[0]) / 6},${c[1] - (e[1] - b[1]) / 6} ${c[0]},${c[1]}`; } area += "Z";
+    const cw = (W - 2 * PL) / n, tot = pts.reduce((a, p) => [a[0] + p.sales, a[1] + p.purchases], [0, 0]);
+    $("#lgd").innerHTML = `<div>مبيعات<b class="num">${usd(tot[0])}</b></div><div>مشتريات<b class="num">${usd(tot[1])}</b></div><div>الفرق<b class="num ${tot[0] - tot[1] < 0 ? "warn-t" : "ok-t"}">${usd(tot[0] - tot[1])}</b></div>`;
+    const step = Math.max(1, Math.ceil(n / 6));
+    $("#chart").innerHTML = `<svg viewBox="0 0 ${W} ${H}"><defs><pattern id="hat" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="6" stroke="#2fd0b5" stroke-opacity=".35" stroke-width="2"/></pattern></defs>
+      ${pts.map((p, i) => `<rect class="col" data-i="${i}" x="${X(i) - cw / 2 + 2}" y="0" width="${Math.max(2, cw - 4)}" height="${H - PB}" rx="6"/>`).join("")}
+      <path d="${area}" fill="url(#hat)"/><path class="ln" pathLength="1" d="${pa}" stroke="#2fd0b5"/><path class="ln" pathLength="1" d="${pb}" stroke="#cfd9d7" stroke-opacity=".8"/>
+      ${pts.map((p, i) => i % step === 0 ? `<text x="${X(i)}" y="${H - 6}" fill="#7f9490" font-size="11" text-anchor="middle">${p.d.slice(5)}</text>` : "").join("")}
+      <g id="dots"></g></svg><div class="tip" id="tip"></div>`;
+    const svg = $("#chart svg"), tip = $("#tip");
+    const show = i => { $$(".col", svg).forEach(c => c.classList.toggle("on", +c.dataset.i === i)); const p = pts[i];
+      $("#dots", svg).innerHTML = `<circle cx="${X(i)}" cy="${Y(p.sales)}" r="4" fill="#fff" stroke="#2fd0b5" stroke-width="2"/><circle cx="${X(i)}" cy="${Y(p.purchases)}" r="4" fill="#fff" stroke="#9aa"/>`;
+      tip.innerHTML = `<div style="color:var(--mute)"><span>${p.d}</span></div><div><span><i style="background:#2fd0b5"></i>مبيعات</span><b class="num">${usd(p.sales)}</b></div><div><span><i style="background:#cfd9d7"></i>مشتريات</span><b class="num">${usd(p.purchases)}</b></div>`;
+      const r = svg.getBoundingClientRect(), x = X(i) / W * r.width; tip.style.left = Math.max(0, Math.min(r.width - 150, x + 10)) + "px"; tip.classList.add("on"); };
+    const at = ev => { const r = svg.getBoundingClientRect(), cx = (ev.touches ? ev.touches[0].clientX : ev.clientX) - r.left; show(Math.max(0, Math.min(n - 1, Math.round(cx / r.width * W / ((W - 2 * PL) / Math.max(1, n - 1)) - PL / ((W - 2 * PL) / Math.max(1, n - 1)))))); };
+    svg.onmousemove = at; svg.ontouchstart = svg.ontouchmove = at; svg.onmouseleave = () => { tip.classList.remove("on"); $$(".col", svg).forEach(c => c.classList.remove("on")); $("#dots", svg).innerHTML = ""; };
+  };
+  $$("#rng button").forEach(b => b.onclick = () => { rng = +b.dataset.r; $$("#rng button").forEach(x => x.classList.toggle("on", x === b)); draw(); });
+  draw();
+  /* ---- المقياس ---- */
+  const pct = d.health.pct, T = 40, cx = 115, cy = 115, ticks = []; 
+  for (let i = 0; i < T; i++) { const a = Math.PI * (1 - i / (T - 1)), r1 = 80, r2_ = i % 5 === 0 ? 106 : 98, on = i / (T - 1) * 100 <= pct; ticks.push(`<line x1="${cx + r1 * Math.cos(a)}" y1="${cy - r1 * Math.sin(a)}" x2="${cx + r2_ * Math.cos(a)}" y2="${cy - r2_ * Math.sin(a)}" stroke="${on ? (pct < 60 ? "#f0a94a" : "#2fd0b5") : "#27363a"}" stroke-width="2.4" stroke-linecap="round" style="animation:fade .4s ${i * 25}ms both"/>`); }
+  $("#gauge").innerHTML = `<div class="gw"><svg viewBox="0 0 230 130">${ticks.join("")}</svg><div class="mid"><span class="num" id="gn">0</span><small style="font-size:16px;color:var(--mute)">%</small><div class="small mute" style="font-size:11px">${d.health.ok} من ${d.health.total} صنف سليم</div></div></div>
+    <div class="gbox"><div class="t">إن لم يتغير شيء</div><div class="n">${firstExp ? (firstExp.days < 0 ? "0" : firstExp.days) : "—"}<small style="font-size:13px;color:var(--mute)"> يوم</small></div><div class="small mute">حتى انتهاء أول دفعة</div><div class="n" style="margin-top:6px">${exp30}</div><div class="small mute">دفعات تنتهي خلال 30 يوماً</div></div>`;
+  { const el = $("#gn"), t0 = performance.now(); const tick = t => { const k = Math.min(1, (t - t0) / 900); el.textContent = Math.round(pct * (1 - Math.pow(1 - k, 3))); if (k < 1) requestAnimationFrame(tick); }; requestAnimationFrame(tick); }
+  /* ---- أعمدة الفئات ---- */
+  const cats = d.categories, cmax = Math.max(1, ...cats.map(c => c.usd));
+  $("#vbars").innerHTML = cats.length ? cats.map((c, i) => { const k = Math.max(1, Math.round(c.usd / cmax * 16)); return `<div class="vb" title="${esc(c.name)}: ${usd(c.usd)}"><em class="num">${Math.round(c.usd)}</em>${Array.from({ length: k }, (_, j) => `<div class="seg2 ${i === 0 && j === k - 1 ? "hi" : ""}" style="animation-delay:${(j + i) * 30}ms"></div>`).join("")}<small>${esc(c.name)}</small></div>`; }).join("") : `<div class="mute small" style="margin:auto">لا مبيعات هذا الشهر بعد</div>`;
+  /* ---- جدول يحتاج انتباه ---- */
+  let tab = ins.tab || "low";
+  const drawA = () => {
+    $("#atab").innerHTML = [["low", "نواقص", A.low.length], ["exp", "صلاحية", A.expiring.length], ["debt", "ديون", A.debts.length]].map(t => `<button data-t="${t[0]}" class="${tab === t[0] ? "on" : ""}">${t[1]}<span>${t[2]}</span></button>`).join("");
+    $$("#atab button").forEach(b => b.onclick = () => { tab = b.dataset.t; drawA(); });
+    const rows = tab === "low" ? A.low.map(x => `<tr data-go="inventory"><td>${esc(x.name)}</td><td class="num">${num(x.stock)} / ${num(x.min)}</td><td><span class="st ${x.stock <= 0 ? "b" : "w"}">${x.stock <= 0 ? "نفد" : "ناقص"}</span></td></tr>`)
+      : tab === "exp" ? A.expiring.map(x => `<tr data-go="inventory"><td>${esc(x.name)}</td><td class="num small">${esc(x.expiry)}</td><td><span class="st ${x.days < 0 ? "b" : x.days <= 30 ? "w" : ""}">${x.days < 0 ? "منتهية" : x.days + " يوم"}</span></td></tr>`)
+      : A.debts.map(x => `<tr data-go="customers"><td>${esc(x.name)}</td><td class="num">${usd(x.usd)}</td><td><span class="st w">${x.last ? "آخر دفعة " + x.last.slice(5, 10) : "بلا دفعات"}</span></td></tr>`);
+    $("#atable").innerHTML = `<table class="atable"><tbody>${rows.join("") || `<tr><td class="mute" style="text-align:center">لا شيء هنا 👌</td></tr>`}</tbody></table>`;
+    $$("#atable [data-go]").forEach(e => e.onclick = () => go(e.dataset.go));
+  };
+  drawA();
+  if ($("#aiGo")) $("#aiGo").onclick = () => { tab = ins.tab; drawA(); $("#atable").scrollIntoView({ behavior: "smooth", block: "center" }); };
+  $("#aiNo").onclick = () => { $("#ai").style.display = "none"; };
 };
 
 /* ============================== نقطة البيع ============================== */
@@ -820,13 +936,21 @@ VIEWS.purchases = async main => {
   const P = S.purch || (S.purch = { cur: "USD", supplier_id: null, items: [], paid: null, invoice_no: "", discount: "" });
   const rows = await api("purchases");
   main.innerHTML = `<h2>مشتريات / إدخال بضاعة</h2>
+  ${P.editId ? `<div class="card" style="border-color:var(--brand)"><b>✏️ تعديل فاتورة شراء</b><div class="grid g2" style="margin-top:8px"><div class="field"><label class="f">تاريخ الفاتورة</label><input type="date" id="pts" value="${esc(P.ts)}"></div><div class="field"><label class="f">سعر الدولار وقتها</label><input class="num" id="ptr" inputmode="decimal" value="${P.rate || ""}"></div></div><button class="ghost" id="pcancel">إلغاء التعديل</button></div>` : ""}
   <div class="card"><div class="grid g2"><div class="field"><label class="f">المورد</label><select id="sup"><option value="">— بدون مورد (نقدي) —</option>${S.suppliers.map(s => `<option value="${s.id}" ${s.id == P.supplier_id ? "selected" : ""}>${esc(s.name)}</option>`).join("")}</select><button class="ghost" id="ns">+ مورد جديد</button></div>
    <div class="field"><label class="f">عملة الفاتورة</label><div class="seg" id="cs"><button data-c="USD">دولار</button><button data-c="SYP">ليرة</button></div></div></div>
    <div class="field"><label class="f">رقم فاتورة المورد</label><input id="inv" value="${esc(P.invoice_no)}"></div>
    <div id="items"></div><button class="sec" id="addi" style="width:100%;margin-top:8px">+ إضافة صنف</button>
    <div class="totals" id="pt"></div></div>
   <h3 style="margin-top:16px">آخر المشتريات</h3><div class="card"><div class="list">${rows.slice(0, 30).map(r => `<div class="item" data-id="${r.id}"><div class="grow"><b>#${r.id}</b> ${esc(r.supplier_name || "نقدي")}<br><small class="mute">${esc(arDate(r.ts))}${r.invoice_no ? " · " + esc(r.invoice_no) : ""}</small></div><div class="num"><b>${money(r.total, r.currency)}</b>${r.total - r.paid > 0.004 ? `<br><small class="bad-t">دين ${money(r.total - r.paid, r.currency)}</small>` : ""}</div></div>`).join("") || '<div class="mute" style="padding:10px">لا مشتريات</div>'}</div></div>`;
-  $$(".item", main).forEach(e => e.onclick = guard(async () => { const p = await api("purchases/" + e.dataset.id); modal("شراء " + (p.invoice_no || p.ts), `<div class="scroll"><table><tr><th>الصنف</th><th>الكمية</th><th>التكلفة</th><th>الصلاحية</th></tr>${p.items.map(i => `<tr><td>${esc(i.name)}</td><td class="num">${num(i.qty_unit)} ${i.unit === "pack" ? "عبوة" : ""}</td><td class="num">${money(i.cost, p.currency)}</td><td class="num small">${esc(i.expiry || "-")}</td></tr>`).join("")}</table></div>`); }));
+  $$(".item", main).forEach(e => e.onclick = guard(async () => { const p = await api("purchases/" + e.dataset.id);
+    modal("شراء " + (p.invoice_no || p.ts), `<div class="scroll"><table><tr><th>الصنف</th><th>الكمية</th><th>التكلفة</th><th>الصلاحية</th></tr>${p.items.map(i => `<tr><td>${esc(i.name)}</td><td class="num">${num(i.qty_unit)} ${i.unit === "pack" ? "عبوة" : ""}</td><td class="num">${money(i.cost, p.currency)}</td><td class="num small">${esc(i.expiry || "-")}</td></tr>`).join("")}</table></div>
+      <div class="row" style="margin-top:10px;gap:8px"><button id="pedit" class="grow">✏️ تعديل الفاتورة</button><button id="pdel" class="ghost bad-t">🗑 حذف</button></div>`, { onMount: (b, close) => {
+      $("#pedit", b).onclick = () => { close(); S.purch = { editId: p.id, ts: p.ts.slice(0, 10), rate: p.rate, cur: p.currency, supplier_id: p.supplier_id, invoice_no: p.invoice_no || "", discount: p.discount || "", paid: p.paid >= p.total - 0.005 ? null : p.paid,
+        items: p.items.map(i => ({ p: S.products.find(x => x.id == i.product_id) || { id: i.product_id, name: i.name }, qty: i.qty_unit, unit: i.unit, size: i.size || null, cost: i.cost, expiry: i.expiry || "", batch_no: i.batch_no || "" })) }; VIEWS.purchases(main); window.scrollTo(0, 0); };
+      $("#pdel", b).onclick = guard(async () => { if (!(await confirmBox("حذف فاتورة الشراء؟ سيُنقص المخزون بمقدارها ويُلغى دينها للمورد."))) return; await api("purchases/" + p.id + "/void", { method: "POST" }); close(); toast("تم حذف الفاتورة"); VIEWS.purchases(main); });
+    } }); }));
+  if (P.editId) { $("#pts", main).oninput = e => P.ts = e.target.value; $("#ptr", main).oninput = e => P.rate = +NORM(e.target.value) || 0; $("#pcancel", main).onclick = () => { S.purch = null; VIEWS.purchases(main); }; }
   $("#sup", main).onchange = e => P.supplier_id = e.target.value || null;
   $("#ns", main).onclick = () => supplierForm(null, async id => { await loadSuppliers(); P.supplier_id = id; VIEWS.purchases(main); });
   $("#inv", main).oninput = e => P.invoice_no = e.target.value;
@@ -854,15 +978,15 @@ VIEWS.purchases = async main => {
       box.innerHTML = `<div class="grid g2"><div class="field"><label class="f">خصم</label><input id="pd" class="num" inputmode="decimal" value="${P.discount}"></div>
       <div class="field"><label class="f">المدفوع الآن</label><input id="ppaid" class="num" inputmode="decimal"></div></div>
       <div class="row"><span class="grow">الإجمالي</span><b class="num big" id="ptot"></b></div><div id="prem"></div>
-      <button id="psave" style="width:100%;margin-top:10px;min-height:50px">حفظ فاتورة الشراء وإدخال المخزون</button>`;
+      <button id="psave" style="width:100%;margin-top:10px;min-height:50px">${P.editId ? "حفظ التعديلات" : "حفظ فاتورة الشراء وإدخال المخزون"}</button>`;
       $("#pd", box).oninput = e => { P.discount = e.target.value; drawTotals(); };
       $("#ppaid", box).oninput = e => { P.paid = e.target.value === "" ? null : (+e.target.value || 0); drawTotals(); }; $("#ppaid", box).value = paid;
       $("#psave", box).onclick = guard(async () => {
         if (!P.items.length) return toast("أضف أصنافاً", true);
         if (P.items.some(i => !(i.cost > 0)) && !(await confirmBox("يوجد صنف بتكلفة صفر، متابعة؟"))) return;
         const tt = total(), pd = P.paid === null ? tt : Math.min(+P.paid || 0, tt);
-        await api("purchases", { method: "POST", body: { supplier_id: P.supplier_id, currency: P.cur, invoice_no: P.invoice_no, discount: +P.discount || 0, paid: pd, rate: rateUse(), items: P.items.map(i => ({ product_id: i.p.id, qty: i.qty, unit: i.unit, size: i.size || undefined, cost: i.cost, expiry: i.expiry, batch_no: i.batch_no })) } });
-        S.purch = null; toast("تم إدخال البضاعة للمخزون"); VIEWS.purchases(main);
+        await api(P.editId ? "purchases/" + P.editId + "/edit" : "purchases", { method: "POST", body: { supplier_id: P.supplier_id, currency: P.cur, invoice_no: P.invoice_no, discount: +P.discount || 0, paid: pd, rate: P.editId ? (P.rate || rateUse()) : rateUse(), ts: P.editId ? P.ts : undefined, items: P.items.map(i => ({ product_id: i.p.id, qty: i.qty, unit: i.unit, size: i.size || undefined, cost: i.cost, expiry: i.expiry, batch_no: i.batch_no })) } });
+        toast(P.editId ? "تم تعديل الفاتورة" : "تم إدخال البضاعة للمخزون"); S.purch = null; VIEWS.purchases(main);
       });
     }
     $("#ptot", box).textContent = money(t, P.cur);
